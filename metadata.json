@@ -1,0 +1,6 @@
+{
+  "name": "My Daily হিসাব",
+  "description": "Bengali Daily Expense, Income, Budget, and Savings Tracker with Personal and Business Accounts",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

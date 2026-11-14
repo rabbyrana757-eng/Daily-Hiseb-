@@ -1,0 +1,111 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated user profile and account preferences.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "displayName": { "type": "string", "description": "User display name." },
+        "email": { "type": "string", "description": "User email address." },
+        "activeAccount": { "type": "string", "enum": ["personal", "business"], "description": "Currently active account workspace." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp (FieldValue.serverTimestamp())." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server update timestamp (FieldValue.serverTimestamp())." }
+      },
+      "required": ["userId", "activeAccount", "createdAt", "updatedAt"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "A single income or expense transaction scoped to Personal or Business account.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "accountType": { "type": "string", "enum": ["personal", "business"], "description": "Account scope." },
+        "type": { "type": "string", "enum": ["income", "expense"], "description": "Transaction type." },
+        "amount": { "type": "number", "description": "Positive transaction amount in BDT." },
+        "category": { "type": "string", "description": "Category name in Bengali or custom name." },
+        "paymentMethod": { "type": "string", "enum": ["Cash", "bKash", "Nagad", "Rocket", "Bank", "Card", "Other"], "description": "Payment method." },
+        "dateMillis": { "type": "integer", "description": "Epoch milliseconds for the transaction date." },
+        "dateKey": { "type": "string", "description": "Formatted date string in DD-MM-YYYY." },
+        "year": { "type": "integer", "description": "4-digit calendar year." },
+        "month": { "type": "integer", "description": "Month number 1..12." },
+        "day": { "type": "integer", "description": "Day of month 1..31." },
+        "note": { "type": "string", "description": "Optional transaction note or description." },
+        "receiptBase64": { "type": "string", "description": "Optional compressed JPEG receipt thumbnail encoded in Base64." },
+        "clientRequestId": { "type": "string", "description": "Client idempotency token to avoid duplicate writes." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server update timestamp." }
+      },
+      "required": ["userId", "accountType", "type", "amount", "category", "paymentMethod", "dateMillis", "dateKey", "year", "month", "day", "createdAt", "updatedAt"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "User-defined custom income or expense category.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "name": { "type": "string", "description": "Category display name." },
+        "type": { "type": "string", "enum": ["income", "expense"], "description": "Category transaction type." },
+        "isCustom": { "type": "boolean", "description": "Whether category was created by the user." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server update timestamp." }
+      },
+      "required": ["userId", "name", "type", "isCustom", "createdAt", "updatedAt"]
+    },
+    "Budget": {
+      "title": "Budget",
+      "description": "Monthly overall or category-specific spending budget limit.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "accountType": { "type": "string", "enum": ["personal", "business"], "description": "Account scope." },
+        "year": { "type": "integer", "description": "Budget year." },
+        "month": { "type": "integer", "description": "Budget month 1..12." },
+        "category": { "type": "string", "description": "Category name or ALL for overall monthly budget." },
+        "limitAmount": { "type": "number", "description": "Budget spending ceiling in BDT." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server update timestamp." }
+      },
+      "required": ["userId", "accountType", "year", "month", "category", "limitAmount", "createdAt", "updatedAt"]
+    },
+    "SavingsGoal": {
+      "title": "SavingsGoal",
+      "description": "Target savings goal with saved progress and completion date.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "accountType": { "type": "string", "enum": ["personal", "business"], "description": "Account scope." },
+        "name": { "type": "string", "description": "Savings goal title." },
+        "targetAmount": { "type": "number", "description": "Target amount in BDT." },
+        "savedAmount": { "type": "number", "description": "Current saved amount in BDT." },
+        "targetDateMillis": { "type": "integer", "description": "Epoch milliseconds for target completion date." },
+        "targetDateKey": { "type": "string", "description": "Formatted target date in DD-MM-YYYY." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server update timestamp." }
+      },
+      "required": ["userId", "accountType", "name", "targetAmount", "savedAmount", "targetDateMillis", "targetDateKey", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Owner-only user profile and workspace preference."
+    },
+    "/users/{userId}/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/Transaction" },
+      "description": "User-owned income and expense transactions."
+    },
+    "/users/{userId}/categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/Category" },
+      "description": "User-owned custom income and expense categories."
+    },
+    "/users/{userId}/budgets/{budgetId}": {
+      "schema": { "$ref": "#/entities/Budget" },
+      "description": "User-owned monthly and category budgets."
+    },
+    "/users/{userId}/savingsGoals/{goalId}": {
+      "schema": { "$ref": "#/entities/SavingsGoal" },
+      "description": "User-owned savings goals."
+    }
+  }
+}
