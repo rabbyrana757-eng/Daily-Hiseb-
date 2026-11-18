@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.AccountBalanceWallet
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.Login
+import androidx.compose.material.icons.rounded.PersonOutline
 import androidx.compose.material.icons.rounded.Savings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -31,6 +32,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -55,10 +57,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.credentials.CredentialManager
 import com.example.R
+import com.example.ui.components.NeumorphicCard
+import com.example.ui.theme.HisabTheme
+import com.example.ui.theme.neumorphicCircle
+import com.example.ui.theme.neumorphicInset
+import com.example.ui.theme.neumorphicRaised
 
 @Composable
 fun AuthScreen(
   onAuthSuccess: () -> Unit,
+  onContinueAsGuest: () -> Unit,
 ) {
   val context = LocalContext.current
   val coroutineScope = rememberCoroutineScope()
@@ -83,16 +91,10 @@ fun AuthScreen(
       modifier = Modifier
         .fillMaxSize()
         .padding(innerPadding)
-        .background(
-          Brush.verticalGradient(
-            colors = listOf(
-              MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-              MaterialTheme.colorScheme.background,
-            )
-          )
-        ),
+        .background(MaterialTheme.colorScheme.background),
       contentAlignment = Alignment.Center,
     ) {
+      val neo = HisabTheme.neumorphic
       Column(
         modifier = Modifier
           .widthIn(max = 520.dp)
@@ -101,19 +103,20 @@ fun AuthScreen(
           .padding(horizontal = 24.dp, vertical = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
       ) {
-        Surface(
-          shape = CircleShape,
-          color = MaterialTheme.colorScheme.primary,
-          modifier = Modifier.size(64.dp),
+        Box(
+          modifier = Modifier
+            .size(68.dp)
+            .neumorphicCircle(shadowElevation = 6.dp, containerColor = neo.heroGradient.first())
+            .clip(CircleShape)
+            .background(Brush.linearGradient(neo.heroGradient)),
+          contentAlignment = Alignment.Center,
         ) {
-          Box(contentAlignment = Alignment.Center) {
-            Icon(
-              imageVector = Icons.Rounded.AccountBalanceWallet,
-              contentDescription = "My Daily হিসাব লোগো",
-              tint = MaterialTheme.colorScheme.onPrimary,
-              modifier = Modifier.size(32.dp),
-            )
-          }
+          Icon(
+            imageVector = Icons.Rounded.AccountBalanceWallet,
+            contentDescription = "My Daily হিসাব লোগো",
+            tint = androidx.compose.ui.graphics.Color.White,
+            modifier = Modifier.size(32.dp),
+          )
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -134,22 +137,28 @@ fun AuthScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        Image(
-          painter = painterResource(id = R.drawable.img_auth_hero),
-          contentDescription = "আর্থিক হিসাব ও বিশ্লেষণ ব্যানার",
+        Box(
           modifier = Modifier
             .fillMaxWidth()
-            .height(185.dp)
-            .clip(RoundedCornerShape(22.dp)),
-          contentScale = ContentScale.Crop,
-        )
+            .neumorphicRaised(cornerRadius = 24.dp, shadowElevation = 6.dp)
+            .padding(6.dp),
+        ) {
+          Image(
+            painter = painterResource(id = R.drawable.img_auth_hero),
+            contentDescription = "আর্থিক হিসাব ও বিশ্লেষণ ব্যানার",
+            modifier = Modifier
+              .fillMaxWidth()
+              .height(180.dp)
+              .clip(RoundedCornerShape(18.dp)),
+            contentScale = ContentScale.Crop,
+          )
+        }
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        Card(
-          shape = RoundedCornerShape(20.dp),
-          colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-          elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        NeumorphicCard(
+          cornerRadius = 22.dp,
+          shadowElevation = 6.dp,
           modifier = Modifier.fillMaxWidth(),
         ) {
           Column(
@@ -243,6 +252,43 @@ fun AuthScreen(
             )
           }
         }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedButton(
+          onClick = {
+            errorMsg = null
+            onContinueAsGuest()
+          },
+          enabled = !isLoading,
+          shape = RoundedCornerShape(16.dp),
+          modifier = Modifier
+            .fillMaxWidth()
+            .height(54.dp)
+            .testTag("guest_mode_button"),
+        ) {
+          Icon(
+            imageVector = Icons.Rounded.PersonOutline,
+            contentDescription = null,
+            modifier = Modifier.size(22.dp),
+          )
+          Spacer(modifier = Modifier.width(10.dp))
+          Text(
+            text = "গুগল ছাড়াই প্রবেশ করুন (অফলাইন)",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+          )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+          text = "অফলাইন মোডে সব হিসাব শুধু এই ফোনেই সংরক্ষিত থাকবে। পরে চাইলে সেটিংস থেকে Google অ্যাকাউন্ট যুক্ত করতে পারবেন।",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          textAlign = TextAlign.Center,
+          modifier = Modifier.padding(horizontal = 8.dp),
+        )
       }
     }
   }
@@ -258,19 +304,18 @@ private fun FeatureHighlightRow(
     verticalAlignment = Alignment.CenterVertically,
     modifier = Modifier.fillMaxWidth(),
   ) {
-    Surface(
-      shape = RoundedCornerShape(12.dp),
-      color = MaterialTheme.colorScheme.primaryContainer,
-      modifier = Modifier.size(42.dp),
+    Box(
+      modifier = Modifier
+        .size(44.dp)
+        .neumorphicInset(cornerRadius = 14.dp),
+      contentAlignment = Alignment.Center,
     ) {
-      Box(contentAlignment = Alignment.Center) {
-        Icon(
-          imageVector = icon,
-          contentDescription = null,
-          tint = MaterialTheme.colorScheme.onPrimaryContainer,
-          modifier = Modifier.size(22.dp),
-        )
-      }
+      Icon(
+        imageVector = icon,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.size(22.dp),
+      )
     }
     Spacer(modifier = Modifier.width(12.dp))
     Column {

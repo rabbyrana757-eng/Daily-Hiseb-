@@ -2,10 +2,15 @@ package com.example.domain
 
 import com.example.data.model.AccountType
 import com.example.data.model.BudgetRecord
+import com.example.data.model.PartyEntryRecord
+import com.example.data.model.PartyEntryType
+import com.example.data.model.PartyRecord
+import com.example.data.model.PartyType
 import com.example.data.model.TransactionRecord
 import com.example.data.model.TransactionType
 import com.example.util.DateFormats
 import java.util.Calendar
+import kotlin.math.abs
 
 data class DashboardSummary(
   val todayIncome: Double = 0.0,
@@ -79,6 +84,27 @@ data class BudgetStatus(
   val percentUsed: Int,
   val progressFraction: Float,
   val alertLevel: BudgetAlertLevel,
+)
+
+data class PartySummary(
+  val party: PartyRecord,
+  val totalGiven: Double,
+  val totalReceived: Double,
+  val netBalance: Double, // > 0 means Receivable (পাবো), < 0 means Payable (দেবো)
+  val entryCount: Int,
+  val lastActivityMillis: Long,
+) {
+  val receivableAmount: Double get() = if (netBalance > 0.0) netBalance else 0.0
+  val payableAmount: Double get() = if (netBalance < 0.0) abs(netBalance) else 0.0
+}
+
+data class TallyKhataSummary(
+  val partySummaries: List<PartySummary> = emptyList(),
+  val totalReceivable: Double = 0.0,
+  val totalPayable: Double = 0.0,
+  val netBalance: Double = 0.0,
+  val customerCount: Int = 0,
+  val supplierCount: Int = 0,
 )
 
 object HisabAnalytics {
@@ -286,5 +312,47 @@ object HisabAnalytics {
         )
       }
       .sortedByDescending { it.amount }
+  }
+
+  fun computeTallySummary(
+    parties: List<PartyRecord>,
+    entries: List<PartyEntryRecord>,
+  ): TallyKhataSummary {
+    val grouped = entries.groupBy { it.partyId }
+    val summaries =
+      parties
+        .map { party ->
+          val list = grouped[party.id].orEmpty()
+          var given = 0.0
+          var received = 0.0
+          var latestMillis = party.updatedAt?.toDate()?.time ?: party.createdAt?.toDate()?.time ?: 0L
+          list.forEach { e ->
+            if (e.kind == PartyEntryType.GIVEN) given += e.amount else received += e.amount
+            if (e.dateMillis > latestMillis) latestMillis = e.dateMillis
+          }
+          PartySummary(
+            party = party,
+            totalGiven = given,
+            totalReceived = received,
+            netBalance = given - received,
+            entryCount = list.size,
+            lastActivityMillis = latestMillis,
+          )
+        }
+        .sortedWith(
+          compareByDescending<PartySummary> { it.lastActivityMillis }
+            .thenBy { it.party.name.lowercase() }
+        )
+
+    val totalReceivable = summaries.sumOf { it.receivableAmount }
+    val totalPayable = summaries.sumOf { it.payableAmount }
+    return TallyKhataSummary(
+      partySummaries = summaries,
+      totalReceivable = totalReceivable,
+      totalPayable = totalPayable,
+      netBalance = totalReceivable - totalPayable,
+      customerCount = parties.count { it.role == PartyType.CUSTOMER },
+      supplierCount = parties.count { it.role == PartyType.SUPPLIER },
+    )
   }
 }

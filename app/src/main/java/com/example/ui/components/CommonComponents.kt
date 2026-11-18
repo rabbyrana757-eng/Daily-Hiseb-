@@ -7,8 +7,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -35,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
@@ -42,11 +45,69 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.example.R
 import com.example.data.model.AccountType
+import com.example.ui.theme.HisabTheme
+import com.example.ui.theme.neumorphicInset
+import com.example.ui.theme.neumorphicRaised
 import com.example.util.ReceiptImageHelper
+
+@Composable
+fun NeumorphicCard(
+  modifier: Modifier = Modifier,
+  cornerRadius: Dp = 22.dp,
+  shadowElevation: Dp = 6.dp,
+  containerColor: Color? = null,
+  onClick: (() -> Unit)? = null,
+  content: @Composable ColumnScope.() -> Unit,
+) {
+  val baseModifier = modifier
+    .neumorphicRaised(
+      cornerRadius = cornerRadius,
+      shadowElevation = shadowElevation,
+      containerColor = containerColor,
+    )
+    .clip(RoundedCornerShape(cornerRadius))
+    .let { mod ->
+      if (onClick != null) mod.clickable(onClick = onClick) else mod
+    }
+
+  Column(
+    modifier = baseModifier,
+    content = content,
+  )
+}
+
+@Composable
+fun NeumorphicProgressBar(
+  progress: Float,
+  modifier: Modifier = Modifier,
+  height: Dp = 10.dp,
+  fillColors: List<Color> = HisabTheme.neumorphic.ringGradient,
+) {
+  val clamped = progress.coerceIn(0f, 1f)
+  val radius = height / 2
+  Box(
+    modifier = modifier
+      .fillMaxWidth()
+      .height(height)
+      .neumorphicInset(cornerRadius = radius)
+      .clip(RoundedCornerShape(radius)),
+  ) {
+    if (clamped > 0f) {
+      Box(
+        modifier = Modifier
+          .fillMaxWidth(clamped)
+          .fillMaxHeight()
+          .clip(RoundedCornerShape(radius))
+          .background(Brush.horizontalGradient(fillColors)),
+      )
+    }
+  }
+}
 
 @Composable
 fun AccountSwitcherPill(
@@ -54,35 +115,47 @@ fun AccountSwitcherPill(
   onSelectAccount: (AccountType) -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  Surface(
-    shape = RoundedCornerShape(16.dp),
-    color = MaterialTheme.colorScheme.surfaceVariant,
-    modifier = modifier.fillMaxWidth(),
+  val neo = HisabTheme.neumorphic
+  Box(
+    modifier = modifier
+      .fillMaxWidth()
+      .neumorphicInset(cornerRadius = 18.dp)
+      .padding(5.dp),
   ) {
     Row(
-      modifier = Modifier.padding(4.dp),
-      horizontalArrangement = Arrangement.spacedBy(4.dp),
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
       AccountType.entries.forEach { account ->
         val selected = account == activeAccount
-        val bgColor by animateColorAsState(
-          targetValue = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
-          label = "account_pill_bg",
-        )
         val contentColor by animateColorAsState(
           targetValue =
-            if (selected) MaterialTheme.colorScheme.onPrimary
+            if (selected) Color.White
             else MaterialTheme.colorScheme.onSurfaceVariant,
           label = "account_pill_fg",
         )
+        val itemModifier = Modifier
+          .weight(1f)
+          .let { mod ->
+            if (selected) {
+              mod
+                .neumorphicRaised(
+                  cornerRadius = 14.dp,
+                  shadowElevation = 4.dp,
+                  drawContainer = false,
+                )
+                .clip(RoundedCornerShape(14.dp))
+                .background(Brush.horizontalGradient(neo.heroGradient))
+            } else {
+              mod.clip(RoundedCornerShape(14.dp))
+            }
+          }
+          .clickable { onSelectAccount(account) }
+          .padding(vertical = 11.dp, horizontal = 8.dp)
+          .testTag("account_switch_${account.value}")
+
         Row(
-          modifier = Modifier
-            .weight(1f)
-            .clip(RoundedCornerShape(12.dp))
-            .background(bgColor)
-            .clickable { onSelectAccount(account) }
-            .padding(vertical = 10.dp, horizontal = 8.dp)
-            .testTag("account_switch_${account.value}"),
+          modifier = itemModifier,
           horizontalArrangement = Arrangement.Center,
           verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -98,6 +171,7 @@ fun AccountSwitcherPill(
           Text(
             text = account.labelBn,
             style = MaterialTheme.typography.labelLarge,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             color = contentColor,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -165,11 +239,10 @@ fun EmptyStateCard(
   subtitle: String,
   modifier: Modifier = Modifier,
 ) {
-  Surface(
-    shape = RoundedCornerShape(20.dp),
-    color = MaterialTheme.colorScheme.surface,
-    tonalElevation = 1.dp,
+  NeumorphicCard(
     modifier = modifier.fillMaxWidth(),
+    cornerRadius = 22.dp,
+    shadowElevation = 6.dp,
   ) {
     Column(
       modifier = Modifier
@@ -211,7 +284,7 @@ fun ReceiptPreviewDialog(
   val bitmap = remember(receiptBase64) { ReceiptImageHelper.decodeBase64ToImageBitmap(receiptBase64) }
   Dialog(onDismissRequest = onDismiss) {
     Surface(
-      shape = RoundedCornerShape(22.dp),
+      shape = RoundedCornerShape(24.dp),
       color = MaterialTheme.colorScheme.surface,
       modifier = Modifier.fillMaxWidth(),
     ) {

@@ -29,9 +29,8 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.SwapVert
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenu
@@ -53,11 +52,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.data.model.AccountType
+import com.example.data.model.PartyEntryRecord
+import com.example.data.model.PartyEntryType
+import com.example.data.model.PartyType
 import com.example.data.model.PaymentMethod
 import com.example.data.model.TransactionRecord
 import com.example.data.model.TransactionType
@@ -65,11 +70,15 @@ import com.example.ui.HisabUiState
 import com.example.ui.components.AccountSwitcherPill
 import com.example.ui.components.ConfirmDeleteDialog
 import com.example.ui.components.EmptyStateCard
+import com.example.ui.components.NeumorphicCard
 import com.example.ui.components.ReceiptPreviewDialog
 import com.example.ui.theme.ExpenseRed
 import com.example.ui.theme.IncomeGreen
+import com.example.ui.theme.neumorphicCircle
+import com.example.ui.theme.neumorphicInset
 import com.example.util.CurrencyFormat
 import com.example.util.DateFormats
+import com.example.util.WhatsAppShareHelper
 
 enum class DateFilterOption(val labelBn: String) {
   ALL("সব তারিখ"),
@@ -86,8 +95,12 @@ fun TransactionsScreen(
   onSwitchAccount: (AccountType) -> Unit,
   onEditTransaction: (TransactionRecord) -> Unit,
   onDeleteTransaction: (String) -> Unit,
+  onEditPartyEntry: (PartyEntryRecord) -> Unit = {},
+  onDeletePartyEntry: (String) -> Unit = {},
   modifier: Modifier = Modifier,
 ) {
+  val context = LocalContext.current
+  var showTallyEntries by remember { mutableStateOf(false) }
   var searchQuery by remember { mutableStateOf("") }
   var typeFilter by remember { mutableStateOf<TransactionType?>(null) }
   var dateFilter by remember { mutableStateOf(DateFilterOption.ALL) }
@@ -100,6 +113,7 @@ fun TransactionsScreen(
   var showCategoryMenu by remember { mutableStateOf(false) }
   var showPaymentMenu by remember { mutableStateOf(false) }
   var pendingDeleteTx by remember { mutableStateOf<TransactionRecord?>(null) }
+  var pendingDeletePartyEntry by remember { mutableStateOf<PartyEntryRecord?>(null) }
   var previewReceiptBase64 by remember { mutableStateOf<String?>(null) }
 
   val accountTxs = remember(uiState.transactions, uiState.activeAccount) {
@@ -196,11 +210,38 @@ fun TransactionsScreen(
       onSelectAccount = onSwitchAccount,
     )
 
+    if (uiState.activeAccount == AccountType.BUSINESS) {
+      Spacer(modifier = Modifier.height(8.dp))
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        FilterChip(
+          selected = showTallyEntries,
+          onClick = { showTallyEntries = true },
+          label = { Text("ট্যালি খাতা (${uiState.partyEntries.size})") },
+        )
+        FilterChip(
+          selected = !showTallyEntries,
+          onClick = { showTallyEntries = false },
+          label = { Text("আয়-খরচ (${accountTxs.size})") },
+        )
+      }
+    }
+
     Spacer(modifier = Modifier.height(10.dp))
     OutlinedTextField(
       value = searchQuery,
       onValueChange = { searchQuery = it },
-      placeholder = { Text("ক্যাটাগরি, নোট, মাধ্যম বা টাকা খুঁজুন...") },
+      placeholder = {
+        Text(
+          if (uiState.activeAccount == AccountType.BUSINESS && showTallyEntries) {
+            "কাস্টমার/সাপ্লায়ার, নোট বা টাকা খুঁজুন..."
+          } else {
+            "ক্যাটাগরি, নোট, মাধ্যম বা টাকা খুঁজুন..."
+          }
+        )
+      },
       leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
       trailingIcon = {
         if (searchQuery.isNotEmpty()) {
@@ -218,6 +259,149 @@ fun TransactionsScreen(
 
     Spacer(modifier = Modifier.height(8.dp))
 
+    if (uiState.activeAccount == AccountType.BUSINESS && showTallyEntries) {
+      val partyMap = remember(uiState.parties) { uiState.parties.associateBy { it.id } }
+      val summaryMap = remember(uiState.tallySummary) {
+        uiState.tallySummary.partySummaries.associateBy { it.party.id }
+      }
+      val q = searchQuery.trim().lowercase()
+      val filteredTally = remember(uiState.partyEntries, partyMap, q, sortNewestFirst) {
+        val list = uiState.partyEntries.filter { entry ->
+          val party = partyMap[entry.partyId]
+          q.isEmpty() ||
+            party?.name.orEmpty().lowercase().contains(q) ||
+            entry.note.orEmpty().lowercase().contains(q) ||
+            entry.paymentMethod.lowercase().contains(q) ||
+            entry.amount.toString().contains(q) ||
+            entry.dateKey.contains(q)
+        }
+        if (sortNewestFirst) list.sortedByDescending { it.dateMillis }
+        else list.sortedBy { it.dateMillis }
+      }
+
+      if (filteredTally.isEmpty()) {
+        EmptyStateCard(
+          title = "ট্যালি খাতার কোনো লেনদেন নেই",
+          subtitle = "হোম ট্যাবের ট্যালি খাতা থেকে কাস্টমার বা সাপ্লায়ারের লেনদেন যোগ করুন।",
+        )
+      } else {
+        LazyColumn(
+          contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp),
+          verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+          items(filteredTally, key = { it.id }) { entry ->
+            val party = partyMap[entry.partyId]
+            val role = party?.role ?: PartyType.CUSTOMER
+            val isCreditIncrease =
+              (role == PartyType.CUSTOMER && entry.kind == PartyEntryType.GIVEN) ||
+                (role == PartyType.SUPPLIER && entry.kind == PartyEntryType.RECEIVED)
+            val accent = if (isCreditIncrease) ExpenseRed else IncomeGreen
+            NeumorphicCard(
+              cornerRadius = 20.dp,
+              shadowElevation = 5.dp,
+              onClick = { onEditPartyEntry(entry) },
+              modifier = Modifier.fillMaxWidth(),
+            ) {
+              Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                  modifier = Modifier.fillMaxWidth(),
+                  verticalAlignment = Alignment.CenterVertically,
+                ) {
+                  Box(
+                    modifier = Modifier
+                      .size(42.dp)
+                      .neumorphicCircle(
+                        shadowElevation = 3.dp,
+                        containerColor = accent.copy(alpha = 0.14f),
+                      ),
+                    contentAlignment = Alignment.Center,
+                  ) {
+                    Icon(
+                      imageVector =
+                        if (entry.kind == PartyEntryType.GIVEN) Icons.Rounded.ArrowUpward
+                        else Icons.Rounded.ArrowDownward,
+                      contentDescription = null,
+                      tint = accent,
+                    )
+                  }
+                  Spacer(modifier = Modifier.width(12.dp))
+                  Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                      text = party?.name ?: "অজানা পার্টি",
+                      style = MaterialTheme.typography.titleMedium,
+                      maxLines = 1,
+                      overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                      text = "${entry.kind.contextLabel(role)} • ${entry.dateKey} • ${entry.paymentMethod}",
+                      style = MaterialTheme.typography.bodySmall,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
+                      maxLines = 1,
+                      overflow = TextOverflow.Ellipsis,
+                    )
+                    if (!entry.note.isNullOrBlank()) {
+                      Text(
+                        text = entry.note,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                      )
+                    }
+                  }
+                  Text(
+                    text = CurrencyFormat.formatBdt(entry.amount),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = accent,
+                  )
+                }
+                Row(
+                  modifier = Modifier.fillMaxWidth(),
+                  horizontalArrangement = Arrangement.End,
+                ) {
+                  if (party != null) {
+                    TextButton(
+                      onClick = {
+                        WhatsAppShareHelper.sharePartyEntry(
+                          context = context,
+                          party = party,
+                          entry = entry,
+                          summary = summaryMap[party.id],
+                        )
+                      }
+                    ) {
+                      Icon(
+                        Icons.Rounded.Share,
+                        contentDescription = null,
+                        tint = Color(0xFF16A34A),
+                        modifier = Modifier.size(16.dp),
+                      )
+                      Spacer(modifier = Modifier.width(4.dp))
+                      Text("হোয়াটসঅ্যাপ", color = Color(0xFF16A34A))
+                    }
+                  }
+                  TextButton(onClick = { onEditPartyEntry(entry) }) {
+                    Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("সম্পাদনা")
+                  }
+                  TextButton(onClick = { pendingDeletePartyEntry = entry }) {
+                    Icon(
+                      Icons.Rounded.Delete,
+                      contentDescription = null,
+                      tint = MaterialTheme.colorScheme.error,
+                      modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("মুছুন", color = MaterialTheme.colorScheme.error)
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    } else {
     // Filter Chips Row
     Row(
       modifier = Modifier
@@ -329,13 +513,15 @@ fun TransactionsScreen(
     Spacer(modifier = Modifier.height(6.dp))
 
     // Filtered summary strip
-    Surface(
-      shape = RoundedCornerShape(12.dp),
-      color = MaterialTheme.colorScheme.surfaceVariant,
-      modifier = Modifier.fillMaxWidth(),
+    Box(
+      modifier = Modifier
+        .fillMaxWidth()
+        .neumorphicInset(cornerRadius = 14.dp),
     ) {
       Row(
-        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(horizontal = 14.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
       ) {
         Text(
@@ -360,18 +546,20 @@ fun TransactionsScreen(
       )
     } else {
       LazyColumn(
-        contentPadding = PaddingValues(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
       ) {
         items(filteredList, key = { it.id }) { tx ->
           TransactionHistoryCard(
             tx = tx,
+            onShareWhatsApp = { WhatsAppShareHelper.shareTransaction(context, tx) },
             onEdit = { onEditTransaction(tx) },
             onDelete = { pendingDeleteTx = tx },
             onViewReceipt = { tx.receiptBase64?.let { previewReceiptBase64 = it } },
           )
         }
       }
+    }
     }
   }
 
@@ -420,6 +608,18 @@ fun TransactionsScreen(
     )
   }
 
+  pendingDeletePartyEntry?.let { entry ->
+    ConfirmDeleteDialog(
+      title = "ট্যালি এন্ট্রি মুছবেন?",
+      message = "${CurrencyFormat.formatBdt(entry.amount)} (${entry.dateKey}) স্থায়ীভাবে মুছে ফেলা হবে।",
+      onConfirm = {
+        onDeletePartyEntry(entry.id)
+        pendingDeletePartyEntry = null
+      },
+      onDismiss = { pendingDeletePartyEntry = null },
+    )
+  }
+
   previewReceiptBase64?.let { b64 ->
     ReceiptPreviewDialog(
       receiptBase64 = b64,
@@ -431,37 +631,38 @@ fun TransactionsScreen(
 @Composable
 private fun TransactionHistoryCard(
   tx: TransactionRecord,
+  onShareWhatsApp: () -> Unit,
   onEdit: () -> Unit,
   onDelete: () -> Unit,
   onViewReceipt: () -> Unit,
 ) {
   val accentColor = if (tx.isIncome) IncomeGreen else ExpenseRed
   val sign = if (tx.isIncome) "+" else "-"
-  Card(
-    shape = RoundedCornerShape(18.dp),
-    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-    modifier = Modifier
-      .fillMaxWidth()
-      .clickable(onClick = onEdit),
+  NeumorphicCard(
+    cornerRadius = 20.dp,
+    shadowElevation = 5.dp,
+    onClick = onEdit,
+    modifier = Modifier.fillMaxWidth(),
   ) {
     Column(modifier = Modifier.padding(14.dp)) {
       Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
       ) {
-        Surface(
-          shape = CircleShape,
-          color = accentColor.copy(alpha = 0.14f),
-          modifier = Modifier.size(44.dp),
+        Box(
+          modifier = Modifier
+            .size(44.dp)
+            .neumorphicCircle(
+              shadowElevation = 3.dp,
+              containerColor = accentColor.copy(alpha = 0.14f),
+            ),
+          contentAlignment = Alignment.Center,
         ) {
-          Box(contentAlignment = Alignment.Center) {
-            Icon(
-              imageVector = if (tx.isIncome) Icons.Rounded.ArrowDownward else Icons.Rounded.ArrowUpward,
-              contentDescription = null,
-              tint = accentColor,
-            )
-          }
+          Icon(
+            imageVector = if (tx.isIncome) Icons.Rounded.ArrowDownward else Icons.Rounded.ArrowUpward,
+            contentDescription = null,
+            tint = accentColor,
+          )
         }
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -514,6 +715,16 @@ private fun TransactionHistoryCard(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.End,
       ) {
+        TextButton(onClick = onShareWhatsApp) {
+          Icon(
+            Icons.Rounded.Share,
+            contentDescription = null,
+            tint = Color(0xFF16A34A),
+            modifier = Modifier.size(16.dp),
+          )
+          Spacer(modifier = Modifier.width(4.dp))
+          Text("হোয়াটসঅ্যাপ", color = Color(0xFF16A34A))
+        }
         TextButton(onClick = onEdit) {
           Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
           Spacer(modifier = Modifier.width(4.dp))

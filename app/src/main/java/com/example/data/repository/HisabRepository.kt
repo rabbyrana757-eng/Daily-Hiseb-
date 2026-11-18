@@ -5,6 +5,8 @@ import com.example.R
 import com.example.data.model.AccountType
 import com.example.data.model.BudgetRecord
 import com.example.data.model.CategoryRecord
+import com.example.data.model.PartyEntryRecord
+import com.example.data.model.PartyRecord
 import com.example.data.model.SavingsGoalRecord
 import com.example.data.model.TransactionRecord
 import com.example.data.model.UserProfile
@@ -30,7 +32,7 @@ import kotlinx.coroutines.flow.map
 class HisabRepository(
   private val db: FirebaseFirestore,
   private val auth: FirebaseAuth = Firebase.auth,
-) {
+) : HisabDataSource {
   constructor(context: Context) : this(
     db = FirebaseFirestore.getInstance(
       context.applicationContext.getString(R.string.firestore_database_id)
@@ -52,9 +54,13 @@ class HisabRepository(
 
   private fun savingsCol(uid: String) = userDoc(uid).collection("savingsGoals")
 
+  private fun partiesCol(uid: String) = userDoc(uid).collection("parties")
+
+  private fun partyEntriesCol(uid: String) = userDoc(uid).collection("partyEntries")
+
   // --- User Profile ---
 
-  suspend fun ensureUserProfile(displayName: String?, email: String?) {
+  override suspend fun ensureUserProfile(displayName: String?, email: String?) {
     val uid = requireUserId()
     val docRef = userDoc(uid)
     try {
@@ -95,7 +101,7 @@ class HisabRepository(
     )
   }
 
-  suspend fun updateActiveAccount(accountType: AccountType) {
+  override suspend fun updateActiveAccount(accountType: AccountType) {
     val uid = requireUserId()
     val docRef = userDoc(uid)
     try {
@@ -127,7 +133,7 @@ class HisabRepository(
 
   // --- Transactions ---
 
-  fun observeTransactions(uid: String): Flow<List<TransactionRecord>> = flow {
+  override fun observeTransactions(uid: String): Flow<List<TransactionRecord>> = flow {
     val path = "users/$uid/transactions"
     emitAll(
       transactionsCol(uid)
@@ -169,7 +175,7 @@ class HisabRepository(
     }
   }
 
-  suspend fun addTransaction(record: TransactionRecord): String {
+  override suspend fun addTransaction(record: TransactionRecord): String {
     val uid = requireUserId()
     require(record.amount > 0.0) { "Amount must be greater than zero" }
     require(record.category.isNotBlank()) { "Category cannot be blank" }
@@ -218,7 +224,7 @@ class HisabRepository(
     }
   }
 
-  suspend fun updateTransaction(record: TransactionRecord) {
+  override suspend fun updateTransaction(record: TransactionRecord) {
     val uid = requireUserId()
     require(record.id.isNotBlank()) { "Transaction ID must not be blank for update" }
     require(record.amount > 0.0) { "Amount must be greater than zero" }
@@ -257,7 +263,7 @@ class HisabRepository(
     }
   }
 
-  suspend fun deleteTransaction(transactionId: String) {
+  override suspend fun deleteTransaction(transactionId: String) {
     val uid = requireUserId()
     require(transactionId.isNotBlank()) { "Transaction ID must not be blank" }
     val docRef = transactionsCol(uid).document(transactionId)
@@ -273,7 +279,7 @@ class HisabRepository(
 
   // --- Custom Categories ---
 
-  fun observeCustomCategories(uid: String): Flow<List<CategoryRecord>> = flow {
+  override fun observeCustomCategories(uid: String): Flow<List<CategoryRecord>> = flow {
     val path = "users/$uid/categories"
     emitAll(
       categoriesCol(uid)
@@ -290,7 +296,7 @@ class HisabRepository(
     )
   }
 
-  suspend fun addCustomCategory(name: String, type: String): String {
+  override suspend fun addCustomCategory(name: String, type: String): String {
     val uid = requireUserId()
     val trimmed = name.trim().take(60)
     require(trimmed.isNotEmpty()) { "Category name cannot be empty" }
@@ -315,7 +321,7 @@ class HisabRepository(
     }
   }
 
-  suspend fun deleteCustomCategory(categoryId: String) {
+  override suspend fun deleteCustomCategory(categoryId: String) {
     val uid = requireUserId()
     val docRef = categoriesCol(uid).document(categoryId)
     try {
@@ -330,7 +336,7 @@ class HisabRepository(
 
   // --- Budgets ---
 
-  fun observeBudgets(uid: String): Flow<List<BudgetRecord>> = flow {
+  override fun observeBudgets(uid: String): Flow<List<BudgetRecord>> = flow {
     val path = "users/$uid/budgets"
     emitAll(
       budgetsCol(uid)
@@ -347,7 +353,7 @@ class HisabRepository(
     )
   }
 
-  suspend fun upsertBudget(
+  override suspend fun upsertBudget(
     existingId: String?,
     accountType: String,
     year: Int,
@@ -405,7 +411,7 @@ class HisabRepository(
     }
   }
 
-  suspend fun deleteBudget(budgetId: String) {
+  override suspend fun deleteBudget(budgetId: String) {
     val uid = requireUserId()
     val docRef = budgetsCol(uid).document(budgetId)
     try {
@@ -420,7 +426,7 @@ class HisabRepository(
 
   // --- Savings Goals ---
 
-  fun observeSavingsGoals(uid: String): Flow<List<SavingsGoalRecord>> = flow {
+  override fun observeSavingsGoals(uid: String): Flow<List<SavingsGoalRecord>> = flow {
     val path = "users/$uid/savingsGoals"
     emitAll(
       savingsCol(uid)
@@ -437,7 +443,7 @@ class HisabRepository(
     )
   }
 
-  suspend fun upsertSavingsGoal(goal: SavingsGoalRecord): String {
+  override suspend fun upsertSavingsGoal(goal: SavingsGoalRecord): String {
     val uid = requireUserId()
     require(goal.name.isNotBlank()) { "Goal name cannot be blank" }
     require(goal.targetAmount > 0.0) { "Target amount must be positive" }
@@ -493,7 +499,7 @@ class HisabRepository(
     }
   }
 
-  suspend fun deleteSavingsGoal(goalId: String) {
+  override suspend fun deleteSavingsGoal(goalId: String) {
     val uid = requireUserId()
     val docRef = savingsCol(uid).document(goalId)
     try {
@@ -506,13 +512,207 @@ class HisabRepository(
     }
   }
 
+  // --- Business Tally Khata: Parties & Entries ---
+
+  override fun observeParties(uid: String): Flow<List<PartyRecord>> = flow {
+    val path = "users/$uid/parties"
+    emitAll(
+      partiesCol(uid)
+        .snapshots()
+        .map { snapshot ->
+          snapshot
+            .toObjects(
+              PartyRecord::class.java,
+              DocumentSnapshot.ServerTimestampBehavior.ESTIMATE,
+            )
+            .sortedBy { it.name.lowercase() }
+        }
+        .catch { error ->
+          handleFlowError(error, OperationType.LIST, path, uid)
+        }
+    )
+  }
+
+  override suspend fun upsertParty(party: PartyRecord): String {
+    val uid = requireUserId()
+    val cleanName = party.name.trim().take(100)
+    require(cleanName.isNotEmpty()) { "Party name cannot be empty" }
+    val isUpdate = party.id.isNotBlank()
+    val docRef = if (isUpdate) partiesCol(uid).document(party.id) else partiesCol(uid).document()
+    val cleanPhone = party.phone?.trim()?.take(30)?.takeIf { it.isNotEmpty() }
+    val cleanAddress = party.address?.trim()?.take(200)?.takeIf { it.isNotEmpty() }
+    val cleanNote = party.note?.trim()?.take(300)?.takeIf { it.isNotEmpty() }
+
+    try {
+      if (isUpdate) {
+        val updates = buildMap<String, Any> {
+          put("partyType", party.partyType)
+          put("name", cleanName)
+          put("phone", cleanPhone ?: FieldValue.delete())
+          put("address", cleanAddress ?: FieldValue.delete())
+          put("note", cleanNote ?: FieldValue.delete())
+          put("updatedAt", FieldValue.serverTimestamp())
+        }
+        docRef.update(updates).awaitTask()
+      } else {
+        val payload = buildMap<String, Any> {
+          put("userId", uid)
+          put("partyType", party.partyType)
+          put("name", cleanName)
+          if (cleanPhone != null) put("phone", cleanPhone)
+          if (cleanAddress != null) put("address", cleanAddress)
+          if (cleanNote != null) put("note", cleanNote)
+          put("createdAt", FieldValue.serverTimestamp())
+          put("updatedAt", FieldValue.serverTimestamp())
+        }
+        docRef.set(payload).awaitTask()
+      }
+      return docRef.id
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      handleFirestoreError(
+        e,
+        if (isUpdate) OperationType.UPDATE else OperationType.CREATE,
+        docRef.path,
+        auth,
+      )
+      throw e
+    }
+  }
+
+  override suspend fun deleteParty(partyId: String) {
+    val uid = requireUserId()
+    require(partyId.isNotBlank()) { "Party ID cannot be blank" }
+    val docRef = partiesCol(uid).document(partyId)
+    try {
+      // Remove child ledger entries for this party first
+      val relatedEntries =
+        partyEntriesCol(uid).whereEqualTo("partyId", partyId).get().awaitTask().documents
+      relatedEntries.forEach { it.reference.delete().awaitTask() }
+      docRef.delete().awaitTask()
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      handleFirestoreError(e, OperationType.DELETE, docRef.path, auth)
+      throw e
+    }
+  }
+
+  override fun observePartyEntries(uid: String): Flow<List<PartyEntryRecord>> = flow {
+    val path = "users/$uid/partyEntries"
+    emitAll(
+      partyEntriesCol(uid)
+        .snapshots()
+        .map { snapshot ->
+          snapshot
+            .toObjects(
+              PartyEntryRecord::class.java,
+              DocumentSnapshot.ServerTimestampBehavior.ESTIMATE,
+            )
+            .sortedWith(
+              compareByDescending<PartyEntryRecord> { it.dateMillis }
+                .thenByDescending { it.createdAt?.seconds ?: 0L }
+            )
+        }
+        .catch { error ->
+          handleFlowError(error, OperationType.LIST, path, uid)
+        }
+    )
+  }
+
+  override suspend fun addPartyEntry(entry: PartyEntryRecord): String {
+    val uid = requireUserId()
+    require(entry.partyId.isNotBlank()) { "Party ID cannot be blank" }
+    require(entry.amount > 0.0) { "Amount must be greater than zero" }
+    val dateKey = DateFormats.formatDateKey(entry.dateMillis)
+    val docRef =
+      if (!entry.clientRequestId.isNullOrBlank()) {
+        partyEntriesCol(uid).document(entry.clientRequestId.take(120))
+      } else {
+        partyEntriesCol(uid).document()
+      }
+
+    val payload = buildMap<String, Any> {
+      put("userId", uid)
+      put("partyId", entry.partyId)
+      put("entryType", entry.entryType)
+      put("amount", entry.amount)
+      put("paymentMethod", entry.paymentMethod)
+      put("dateMillis", entry.dateMillis)
+      put("dateKey", dateKey)
+      if (!entry.note.isNullOrBlank()) put("note", entry.note.trim().take(300))
+      if (!entry.clientRequestId.isNullOrBlank()) {
+        put("clientRequestId", entry.clientRequestId.take(80))
+      }
+      put("createdAt", FieldValue.serverTimestamp())
+      put("updatedAt", FieldValue.serverTimestamp())
+    }
+
+    try {
+      docRef.set(payload).awaitTask()
+      return docRef.id
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      handleFirestoreError(e, OperationType.CREATE, docRef.path, auth)
+      throw e
+    }
+  }
+
+  override suspend fun updatePartyEntry(entry: PartyEntryRecord) {
+    val uid = requireUserId()
+    require(entry.id.isNotBlank()) { "Entry ID must not be blank" }
+    require(entry.partyId.isNotBlank()) { "Party ID must not be blank" }
+    require(entry.amount > 0.0) { "Amount must be greater than zero" }
+    val dateKey = DateFormats.formatDateKey(entry.dateMillis)
+    val docRef = partyEntriesCol(uid).document(entry.id)
+    val cleanNote = entry.note?.trim()?.take(300)?.takeIf { it.isNotEmpty() }
+
+    val updates = buildMap<String, Any> {
+      put("partyId", entry.partyId)
+      put("entryType", entry.entryType)
+      put("amount", entry.amount)
+      put("paymentMethod", entry.paymentMethod)
+      put("dateMillis", entry.dateMillis)
+      put("dateKey", dateKey)
+      put("note", cleanNote ?: FieldValue.delete())
+      put("updatedAt", FieldValue.serverTimestamp())
+    }
+
+    try {
+      docRef.update(updates).awaitTask()
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      handleFirestoreError(e, OperationType.UPDATE, docRef.path, auth)
+      throw e
+    }
+  }
+
+  override suspend fun deletePartyEntry(entryId: String) {
+    val uid = requireUserId()
+    require(entryId.isNotBlank()) { "Entry ID must not be blank" }
+    val docRef = partyEntriesCol(uid).document(entryId)
+    try {
+      docRef.delete().awaitTask()
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      handleFirestoreError(e, OperationType.DELETE, docRef.path, auth)
+      throw e
+    }
+  }
+
   // --- Backup & Restore ---
 
-  suspend fun restoreBackup(
+  override suspend fun restoreBackup(
     transactions: List<TransactionRecord>,
     categories: List<CategoryRecord>,
     budgets: List<BudgetRecord>,
     goals: List<SavingsGoalRecord>,
+    parties: List<PartyRecord>,
+    partyEntries: List<PartyEntryRecord>,
   ) {
     val uid = requireUserId()
     transactions.forEach { tx ->
@@ -539,6 +739,26 @@ class HisabRepository(
     }
     goals.forEach { goal ->
       upsertSavingsGoal(goal.copy(id = "", userId = uid))
+    }
+    val partyIdMap = mutableMapOf<String, String>()
+    parties.forEach { party ->
+      val newId = upsertParty(party.copy(id = "", userId = uid))
+      if (party.id.isNotBlank()) {
+        partyIdMap[party.id] = newId
+      }
+    }
+    partyEntries.forEach { entry ->
+      val mappedPartyId = partyIdMap[entry.partyId] ?: entry.partyId
+      if (mappedPartyId.isNotBlank()) {
+        addPartyEntry(
+          entry.copy(
+            id = "",
+            userId = uid,
+            partyId = mappedPartyId,
+            clientRequestId = entry.clientRequestId ?: entry.id.takeIf { it.isNotBlank() },
+          )
+        )
+      }
     }
   }
 

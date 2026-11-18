@@ -4,19 +4,25 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppPreferences
+import com.example.data.local.LocalGuestHisabDataSource
 import com.example.data.model.AccountType
 import com.example.data.model.BudgetRecord
 import com.example.data.model.CategoryRecord
+import com.example.data.model.PartyEntryRecord
+import com.example.data.model.PartyEntryType
+import com.example.data.model.PartyRecord
+import com.example.data.model.PartyType
 import com.example.data.model.PaymentMethod
 import com.example.data.model.SavingsGoalRecord
 import com.example.data.model.TransactionRecord
 import com.example.data.model.TransactionType
-import com.example.data.repository.HisabRepository
+import com.example.data.repository.HisabDataSource
 import com.example.domain.BudgetAlertLevel
 import com.example.domain.BudgetStatus
 import com.example.domain.DashboardSummary
 import com.example.domain.HisabAnalytics
 import com.example.domain.MonthlyReportData
+import com.example.domain.TallyKhataSummary
 import com.example.util.BackupPayload
 import com.example.util.DateFormats
 import com.google.firebase.firestore.FirebaseFirestoreException
@@ -37,6 +43,9 @@ data class HisabUiState(
   val customCategories: List<CategoryRecord> = emptyList(),
   val budgets: List<BudgetRecord> = emptyList(),
   val savingsGoals: List<SavingsGoalRecord> = emptyList(),
+  val parties: List<PartyRecord> = emptyList(),
+  val partyEntries: List<PartyEntryRecord> = emptyList(),
+  val tallySummary: TallyKhataSummary = TallyKhataSummary(),
   val dashboard: DashboardSummary = DashboardSummary(),
   val selectedReportYear: Int = DateFormats.extractYmd(System.currentTimeMillis()).first,
   val selectedReportMonth: Int = DateFormats.extractYmd(System.currentTimeMillis()).second,
@@ -53,11 +62,13 @@ data class HisabUiState(
 )
 
 class HisabViewModel(
-  private val repository: HisabRepository,
+  private val repository: HisabDataSource,
   private val preferences: AppPreferences,
   private val currentUserId: String,
   userDisplayName: String?,
   userEmail: String?,
+  private val isGuestMode: Boolean = false,
+  private val localGuestDataSource: LocalGuestHisabDataSource? = null,
 ) : ViewModel() {
 
   private val nowInit = DateFormats.extractYmd(System.currentTimeMillis())
@@ -70,6 +81,31 @@ class HisabViewModel(
     viewModelScope.launch {
       try {
         repository.ensureUserProfile(userDisplayName, userEmail)
+        if (!isGuestMode && localGuestDataSource != null) {
+          val shouldMigrate = preferences.consumeMigrateGuestOnSignIn()
+          if (shouldMigrate) {
+            val guestPayload = localGuestDataSource.exportPayloadOnce()
+            val hasData =
+              guestPayload.transactions.isNotEmpty() ||
+                guestPayload.categories.isNotEmpty() ||
+                guestPayload.budgets.isNotEmpty() ||
+                guestPayload.goals.isNotEmpty() ||
+                guestPayload.parties.isNotEmpty() ||
+                guestPayload.partyEntries.isNotEmpty()
+            if (hasData) {
+              repository.restoreBackup(
+                transactions = guestPayload.transactions,
+                categories = guestPayload.categories,
+                budgets = guestPayload.budgets,
+                goals = guestPayload.goals,
+                parties = guestPayload.parties,
+                partyEntries = guestPayload.partyEntries,
+              )
+              localGuestDataSource.clearAllData()
+              snackbarFlow.value = "অফলাইন হিসাব সফলভাবে Google ক্লাউডে সিঙ্ক হয়েছে"
+            }
+          }
+        }
       } catch (e: CancellationException) {
         throw e
       } catch (e: Exception) {
@@ -110,12 +146,40 @@ class HisabViewModel(
         emit(emptyList())
       }
 
+  private val partiesFlow =
+    repository
+      .observeParties(currentUserId)
+      .catch { error ->
+        emitErrorFromFlow(error, "কাস্টমার ও সাপ্লায়ার তালিকা লোড করতে সমস্যা হয়েছে")
+        emit(emptyList())
+      }
+
+  private val partyEntriesFlow =
+    repository
+      .observePartyEntries(currentUserId)
+      .catch { error ->
+        emitErrorFromFlow(error, "ট্যালি খাতার এন্ট্রি লোড করতে সমস্যা হয়েছে")
+        emit(emptyList())
+      }
+
   private data class CoreStreams(
     val account: AccountType,
     val transactions: List<TransactionRecord>,
     val categories: List<CategoryRecord>,
     val budgets: List<BudgetRecord>,
     val goals: List<SavingsGoalRecord>,
+  )
+
+  private data class TallyStreams(
+    val parties: List<PartyRecord>,
+    val entries: List<PartyEntryRecord>,
+  )
+
+  private data class UiMeta(
+    val repMonthYear: Pair<Int, Int>,
+    val submitting: Boolean,
+    val errMsg: String?,
+    val snackMsg: String?,
   )
 
   private val coreStreamsFlow =
@@ -129,14 +193,28 @@ class HisabViewModel(
       CoreStreams(account, txs, cats, budgets, goals)
     }
 
-  val uiState: StateFlow<HisabUiState> =
+  private val tallyStreamsFlow =
+    combine(partiesFlow, partyEntriesFlow) { parties, entries ->
+      TallyStreams(parties, entries)
+    }
+
+  private val uiMetaFlow =
     combine(
-      coreStreamsFlow,
       reportMonthYear,
       isSubmittingFlow,
       errorFlow,
       snackbarFlow,
-    ) { core, (repYear, repMonth), submitting, errMsg, snackMsg ->
+    ) { repPair, submitting, errMsg, snackMsg ->
+      UiMeta(repPair, submitting, errMsg, snackMsg)
+    }
+
+  val uiState: StateFlow<HisabUiState> =
+    combine(
+      coreStreamsFlow,
+      tallyStreamsFlow,
+      uiMetaFlow,
+    ) { core, tally, meta ->
+      val (repYear, repMonth) = meta.repMonthYear
       val now = System.currentTimeMillis()
       val (curYear, curMonth, _) = DateFormats.extractYmd(now)
       val dashboard = HisabAnalytics.computeDashboard(core.transactions, core.account, now)
@@ -151,23 +229,27 @@ class HisabViewModel(
           curMonth,
         )
       val alerts = budgetStatuses.filter { it.alertLevel != BudgetAlertLevel.NORMAL }
+      val tallySummary = HisabAnalytics.computeTallySummary(tally.parties, tally.entries)
 
       HisabUiState(
         isLoading = false,
-        isSubmitting = submitting,
+        isSubmitting = meta.submitting,
         activeAccount = core.account,
         transactions = core.transactions,
         customCategories = core.categories,
         budgets = core.budgets,
         savingsGoals = core.goals,
+        parties = tally.parties,
+        partyEntries = tally.entries,
+        tallySummary = tallySummary,
         dashboard = dashboard,
         selectedReportYear = repYear,
         selectedReportMonth = repMonth,
         monthlyReport = report,
         budgetStatuses = budgetStatuses,
         triggeredBudgetAlerts = alerts,
-        errorMessage = errMsg,
-        snackbarMessage = snackMsg,
+        errorMessage = meta.errMsg,
+        snackbarMessage = meta.snackMsg,
       )
     }.stateIn(
       scope = viewModelScope,
@@ -412,6 +494,119 @@ class HisabViewModel(
     }
   }
 
+  fun saveParty(
+    editingId: String?,
+    partyType: PartyType,
+    name: String,
+    phone: String?,
+    address: String?,
+    note: String?,
+    onSuccess: (String) -> Unit = {},
+  ) {
+    if (isSubmittingFlow.value) return
+    val cleanName = name.trim()
+    if (cleanName.isEmpty()) return
+    viewModelScope.launch {
+      isSubmittingFlow.value = true
+      try {
+        val partyId =
+          repository.upsertParty(
+            PartyRecord(
+              id = editingId.orEmpty(),
+              userId = currentUserId,
+              partyType = partyType.value,
+              name = cleanName,
+              phone = phone?.trim()?.takeIf { it.isNotEmpty() },
+              address = address?.trim()?.takeIf { it.isNotEmpty() },
+              note = note?.trim()?.takeIf { it.isNotEmpty() },
+            )
+          )
+        snackbarFlow.value =
+          if (editingId.isNullOrBlank()) "${partyType.labelBn} যোগ করা হয়েছে"
+          else "${partyType.labelBn} তথ্য আপডেট হয়েছে"
+        onSuccess(partyId)
+      } catch (e: CancellationException) {
+        throw e
+      } catch (e: Exception) {
+        errorFlow.value = e.localizedMessage ?: "তথ্য সংরক্ষণ করা যায়নি"
+      } finally {
+        isSubmittingFlow.value = false
+      }
+    }
+  }
+
+  fun deleteParty(partyId: String, onSuccess: () -> Unit = {}) {
+    viewModelScope.launch {
+      try {
+        repository.deleteParty(partyId)
+        snackbarFlow.value = "হিসাব ও লেনদেন মুছে ফেলা হয়েছে"
+        onSuccess()
+      } catch (e: CancellationException) {
+        throw e
+      } catch (e: Exception) {
+        errorFlow.value = e.localizedMessage ?: "মুছে ফেলা যায়নি"
+      }
+    }
+  }
+
+  fun savePartyEntry(
+    editingId: String?,
+    partyId: String,
+    entryType: PartyEntryType,
+    amount: Double,
+    paymentMethod: PaymentMethod,
+    dateMillis: Long,
+    note: String?,
+    clientRequestId: String,
+    onSuccess: () -> Unit = {},
+  ) {
+    if (isSubmittingFlow.value) return
+    viewModelScope.launch {
+      isSubmittingFlow.value = true
+      try {
+        val entry =
+          PartyEntryRecord(
+            id = editingId.orEmpty(),
+            userId = currentUserId,
+            partyId = partyId,
+            entryType = entryType.value,
+            amount = amount,
+            paymentMethod = paymentMethod.value,
+            dateMillis = dateMillis,
+            note = note?.trim()?.takeIf { it.isNotEmpty() },
+            clientRequestId = clientRequestId,
+          )
+        if (editingId.isNullOrBlank()) {
+          repository.addPartyEntry(entry)
+          snackbarFlow.value = "ট্যালি খাতায় এন্ট্রি সংরক্ষিত হয়েছে"
+        } else {
+          repository.updatePartyEntry(entry)
+          snackbarFlow.value = "ট্যালি খাতার এন্ট্রি আপডেট হয়েছে"
+        }
+        onSuccess()
+      } catch (e: CancellationException) {
+        throw e
+      } catch (e: Exception) {
+        errorFlow.value = e.localizedMessage ?: "এন্ট্রি সংরক্ষণ করা যায়নি"
+      } finally {
+        isSubmittingFlow.value = false
+      }
+    }
+  }
+
+  fun deletePartyEntry(entryId: String) {
+    viewModelScope.launch {
+      try {
+        repository.deletePartyEntry(entryId)
+        snackbarFlow.value = "এন্ট্রি মুছে ফেলা হয়েছে"
+      } catch (e: CancellationException) {
+        throw e
+      } catch (e: Exception) {
+        errorFlow.value = e.localizedMessage ?: "এন্ট্রি মুছে ফেলা যায়নি"
+      }
+    }
+  }
+
   fun restoreBackup(payload: BackupPayload) {
     if (isSubmittingFlow.value) return
     viewModelScope.launch {
@@ -422,6 +617,8 @@ class HisabViewModel(
           categories = payload.categories,
           budgets = payload.budgets,
           goals = payload.goals,
+          parties = payload.parties,
+          partyEntries = payload.partyEntries,
         )
         snackbarFlow.value = "ব্যাকআপ সফলভাবে রিস্টোর হয়েছে"
       } catch (e: CancellationException) {

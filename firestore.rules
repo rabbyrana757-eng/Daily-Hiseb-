@@ -99,6 +99,39 @@ service cloud.firestore {
              isValidTimestamp(data.updatedAt);
     }
 
+    function isValidPartyType(val) {
+      return val is string && (val == 'customer' || val == 'supplier');
+    }
+
+    function isValidPartyEntryType(val) {
+      return val is string && (val == 'given' || val == 'received');
+    }
+
+    function isValidParty(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             isValidPartyType(data.partyType) &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+             (!('phone' in data) || data.phone == null || (data.phone is string && data.phone.size() <= 30)) &&
+             (!('address' in data) || data.address == null || (data.address is string && data.address.size() <= 200)) &&
+             (!('note' in data) || data.note == null || (data.note is string && data.note.size() <= 300)) &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidPartyEntry(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             isValidId(data.partyId) &&
+             isValidPartyEntryType(data.entryType) &&
+             data.amount is number && data.amount > 0 && data.amount <= 1000000000 &&
+             isValidPaymentMethod(data.paymentMethod) &&
+             data.dateMillis is int && data.dateMillis > 0 &&
+             isValidDateKey(data.dateKey) &&
+             (!('note' in data) || data.note == null || (data.note is string && data.note.size() <= 300)) &&
+             (!('clientRequestId' in data) || data.clientRequestId == null || (data.clientRequestId is string && data.clientRequestId.size() <= 80)) &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
     function isValidSavingsGoal(data) {
       return data.userId is string && data.userId == request.auth.uid &&
              isValidAccountType(data.accountType) &&
@@ -214,6 +247,48 @@ service cloud.firestore {
                          incoming().diff(existing()).affectedKeys().hasOnly(['accountType', 'name', 'targetAmount', 'savedAmount', 'targetDateMillis', 'targetDateKey', 'updatedAt']);
 
         allow delete: if isOwner(userId) && isValidId(goalId);
+      }
+
+      // Business Tally Khata Parties Subcollection
+      match /parties/{partyId} {
+        allow list: if isOwner(userId);
+        allow get: if isOwner(userId) && isValidId(partyId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(partyId) &&
+                         incoming().keys().hasAll(['userId', 'partyType', 'name', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'partyType', 'name', 'phone', 'address', 'note', 'createdAt', 'updatedAt']) &&
+                         isValidParty(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(partyId) &&
+                         isValidParty(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['partyType', 'name', 'phone', 'address', 'note', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(partyId);
+      }
+
+      // Business Tally Khata Party Entries Subcollection
+      match /partyEntries/{entryId} {
+        allow list: if isOwner(userId);
+        allow get: if isOwner(userId) && isValidId(entryId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(entryId) &&
+                         incoming().keys().hasAll(['userId', 'partyId', 'entryType', 'amount', 'paymentMethod', 'dateMillis', 'dateKey', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'partyId', 'entryType', 'amount', 'paymentMethod', 'dateMillis', 'dateKey', 'note', 'clientRequestId', 'createdAt', 'updatedAt']) &&
+                         isValidPartyEntry(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(entryId) &&
+                         isValidPartyEntry(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['partyId', 'entryType', 'amount', 'paymentMethod', 'dateMillis', 'dateKey', 'note', 'clientRequestId', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(entryId);
       }
     }
   }

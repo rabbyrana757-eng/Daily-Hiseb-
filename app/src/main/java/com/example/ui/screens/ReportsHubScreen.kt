@@ -77,9 +77,12 @@ import com.example.ui.components.AccountSwitcherPill
 import com.example.ui.components.CategoryPieChart
 import com.example.ui.components.ConfirmDeleteDialog
 import com.example.ui.components.EmptyStateCard
+import com.example.ui.components.NeumorphicCard
+import com.example.ui.components.NeumorphicProgressBar
 import com.example.ui.theme.ExpenseRed
 import com.example.ui.theme.IncomeGreen
 import com.example.ui.theme.WarningAmber
+import com.example.ui.theme.neumorphicInset
 import com.example.util.CurrencyFormat
 import com.example.util.DateFormats
 
@@ -160,14 +163,14 @@ private fun MonthlyReportTab(
   var showMonthYearPicker by remember { mutableStateOf(false) }
 
   LazyColumn(
-    contentPadding = PaddingValues(16.dp),
-    verticalArrangement = Arrangement.spacedBy(12.dp),
+    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+    verticalArrangement = Arrangement.spacedBy(14.dp),
   ) {
     // Month & Year Picker Bar
     item {
-      Card(
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+      NeumorphicCard(
+        cornerRadius = 20.dp,
+        shadowElevation = 5.dp,
         modifier = Modifier.fillMaxWidth(),
       ) {
         Row(
@@ -266,9 +269,9 @@ private fun MonthlyReportTab(
 
     // Highest Spending Category & Previous Month Comparison
     item {
-      Card(
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+      NeumorphicCard(
+        cornerRadius = 22.dp,
+        shadowElevation = 6.dp,
         modifier = Modifier.fillMaxWidth(),
       ) {
         Column(
@@ -287,10 +290,10 @@ private fun MonthlyReportTab(
               color = ExpenseRed,
             )
           }
-          Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
-            modifier = Modifier.fillMaxWidth(),
+          Box(
+            modifier = Modifier
+              .fillMaxWidth()
+              .neumorphicInset(cornerRadius = 14.dp),
           ) {
             Column(
               modifier = Modifier.padding(12.dp),
@@ -333,9 +336,9 @@ private fun MonthlyReportTab(
       }
     } else {
       items(report.dailyBreakdown, key = { it.dateKey }) { dayItem ->
-        Card(
-          shape = RoundedCornerShape(14.dp),
-          colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        NeumorphicCard(
+          cornerRadius = 16.dp,
+          shadowElevation = 4.dp,
           modifier = Modifier.fillMaxWidth(),
         ) {
           Row(
@@ -395,8 +398,8 @@ private fun BudgetManagementTab(
   val (curYear, curMonth, _) = DateFormats.extractYmd(now)
 
   LazyColumn(
-    contentPadding = PaddingValues(16.dp),
-    verticalArrangement = Arrangement.spacedBy(12.dp),
+    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+    verticalArrangement = Arrangement.spacedBy(14.dp),
   ) {
     item {
       Row(
@@ -500,9 +503,9 @@ private fun BudgetStatusCard(
       BudgetAlertLevel.NORMAL -> MaterialTheme.colorScheme.primary
     }
 
-  Card(
-    shape = RoundedCornerShape(18.dp),
-    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+  NeumorphicCard(
+    cornerRadius = 20.dp,
+    shadowElevation = 5.dp,
     modifier = Modifier.fillMaxWidth(),
   ) {
     Column(modifier = Modifier.padding(16.dp)) {
@@ -553,15 +556,10 @@ private fun BudgetStatusCard(
       }
 
       Spacer(modifier = Modifier.height(6.dp))
-      LinearProgressIndicator(
-        progress = { status.progressFraction },
-        color = barColor,
-        trackColor = MaterialTheme.colorScheme.surfaceVariant,
-        strokeCap = StrokeCap.Round,
-        modifier = Modifier
-          .fillMaxWidth()
-          .height(10.dp)
-          .clip(RoundedCornerShape(5.dp)),
+      NeumorphicProgressBar(
+        progress = status.progressFraction,
+        height = 10.dp,
+        fillColors = listOf(barColor, barColor.copy(alpha = 0.8f)),
       )
       Spacer(modifier = Modifier.height(8.dp))
       Row(
@@ -604,8 +602,8 @@ private fun SavingsTrackerTab(
   var pendingDeleteGoal by remember { mutableStateOf<SavingsGoalRecord?>(null) }
 
   LazyColumn(
-    contentPadding = PaddingValues(16.dp),
-    verticalArrangement = Arrangement.spacedBy(12.dp),
+    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+    verticalArrangement = Arrangement.spacedBy(14.dp),
   ) {
     item {
       Row(
@@ -644,9 +642,9 @@ private fun SavingsTrackerTab(
       }
     } else {
       items(goals, key = { it.id }) { goal ->
-        Card(
-          shape = RoundedCornerShape(18.dp),
-          colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        NeumorphicCard(
+          cornerRadius = 20.dp,
+          shadowElevation = 5.dp,
           modifier = Modifier.fillMaxWidth(),
         ) {
           Column(modifier = Modifier.padding(16.dp)) {
@@ -691,15 +689,9 @@ private fun SavingsTrackerTab(
             }
 
             Spacer(modifier = Modifier.height(10.dp))
-            LinearProgressIndicator(
-              progress = { goal.progressFraction },
-              color = MaterialTheme.colorScheme.primary,
-              trackColor = MaterialTheme.colorScheme.surfaceVariant,
-              strokeCap = StrokeCap.Round,
-              modifier = Modifier
-                .fillMaxWidth()
-                .height(10.dp)
-                .clip(RoundedCornerShape(5.dp)),
+            NeumorphicProgressBar(
+              progress = goal.progressFraction,
+              height = 10.dp,
             )
             Spacer(modifier = Modifier.height(8.dp))
             Row(
@@ -800,9 +792,9 @@ private fun ReportStatCard(
   color: Color,
   modifier: Modifier = Modifier,
 ) {
-  Card(
-    shape = RoundedCornerShape(16.dp),
-    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+  NeumorphicCard(
+    cornerRadius = 18.dp,
+    shadowElevation = 5.dp,
     modifier = modifier,
   ) {
     Column(modifier = Modifier.padding(14.dp)) {

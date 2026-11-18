@@ -10,6 +10,10 @@ import com.example.R
 import com.example.data.model.AccountType
 import com.example.data.model.BudgetRecord
 import com.example.data.model.CategoryRecord
+import com.example.data.model.PartyEntryRecord
+import com.example.data.model.PartyEntryType
+import com.example.data.model.PartyRecord
+import com.example.data.model.PartyType
 import com.example.data.model.SavingsGoalRecord
 import com.example.data.model.TransactionRecord
 import com.example.data.model.TransactionType
@@ -26,6 +30,8 @@ data class BackupPayload(
   val categories: List<CategoryRecord>,
   val budgets: List<BudgetRecord>,
   val goals: List<SavingsGoalRecord>,
+  val parties: List<PartyRecord> = emptyList(),
+  val partyEntries: List<PartyEntryRecord> = emptyList(),
 )
 
 object ExportBackupManager {
@@ -289,9 +295,11 @@ object ExportBackupManager {
     categories: List<CategoryRecord>,
     budgets: List<BudgetRecord>,
     goals: List<SavingsGoalRecord>,
+    parties: List<PartyRecord> = emptyList(),
+    partyEntries: List<PartyEntryRecord> = emptyList(),
   ): String {
     val root = JSONObject()
-    root.put("version", 1)
+    root.put("version", 2)
     root.put("exportedAtMillis", System.currentTimeMillis())
 
     val txArray = JSONArray()
@@ -355,6 +363,39 @@ object ExportBackupManager {
       )
     }
     root.put("savingsGoals", goalArray)
+
+    val partyArray = JSONArray()
+    parties.forEach { p ->
+      partyArray.put(
+        JSONObject().apply {
+          put("id", p.id)
+          put("partyType", p.partyType)
+          put("name", p.name)
+          put("phone", p.phone.orEmpty())
+          put("address", p.address.orEmpty())
+          put("note", p.note.orEmpty())
+        }
+      )
+    }
+    root.put("parties", partyArray)
+
+    val entryArray = JSONArray()
+    partyEntries.forEach { e ->
+      entryArray.put(
+        JSONObject().apply {
+          put("id", e.id)
+          put("partyId", e.partyId)
+          put("entryType", e.entryType)
+          put("amount", e.amount)
+          put("paymentMethod", e.paymentMethod)
+          put("dateMillis", e.dateMillis)
+          put("dateKey", e.dateKey)
+          put("note", e.note.orEmpty())
+          put("clientRequestId", e.clientRequestId.orEmpty())
+        }
+      )
+    }
+    root.put("partyEntries", entryArray)
 
     return root.toString(2)
   }
@@ -432,6 +473,44 @@ object ExportBackupManager {
         )
     }
 
-    return BackupPayload(txList, catList, budgetList, goalList)
+    val partyList = mutableListOf<PartyRecord>()
+    val pArr = root.optJSONArray("parties") ?: JSONArray()
+    for (i in 0 until pArr.length()) {
+      val obj = pArr.getJSONObject(i)
+      val name = obj.optString("name", "")
+      if (name.isBlank()) continue
+      partyList +=
+        PartyRecord(
+          id = obj.optString("id", ""),
+          partyType = obj.optString("partyType", PartyType.CUSTOMER.value),
+          name = name,
+          phone = obj.optString("phone", "").takeIf { it.isNotBlank() },
+          address = obj.optString("address", "").takeIf { it.isNotBlank() },
+          note = obj.optString("note", "").takeIf { it.isNotBlank() },
+        )
+    }
+
+    val entryList = mutableListOf<PartyEntryRecord>()
+    val eArr = root.optJSONArray("partyEntries") ?: JSONArray()
+    for (i in 0 until eArr.length()) {
+      val obj = eArr.getJSONObject(i)
+      val partyId = obj.optString("partyId", "")
+      val amount = obj.optDouble("amount", 0.0)
+      if (partyId.isBlank() || amount <= 0.0) continue
+      entryList +=
+        PartyEntryRecord(
+          id = obj.optString("id", ""),
+          partyId = partyId,
+          entryType = obj.optString("entryType", PartyEntryType.GIVEN.value),
+          amount = amount,
+          paymentMethod = obj.optString("paymentMethod", "Cash"),
+          dateMillis = obj.optLong("dateMillis", System.currentTimeMillis()),
+          dateKey = obj.optString("dateKey", ""),
+          note = obj.optString("note", "").takeIf { it.isNotBlank() },
+          clientRequestId = obj.optString("clientRequestId", "").takeIf { it.isNotBlank() },
+        )
+    }
+
+    return BackupPayload(txList, catList, budgetList, goalList, partyList, entryList)
   }
 }

@@ -52,6 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.data.model.AccountType
 import com.example.data.model.BudgetRecord
+import com.example.data.model.PartyRecord
 import com.example.data.model.TransactionRecord
 import com.example.domain.BudgetAlertLevel
 import com.example.ui.HisabUiState
@@ -60,10 +61,16 @@ import com.example.ui.components.CategoryPieChart
 import com.example.ui.components.DailyExpenseBarChart
 import com.example.ui.components.EmptyStateCard
 import com.example.ui.components.MonthlyIncomeExpenseChart
+import com.example.ui.components.NeumorphicCard
+import com.example.ui.components.NeumorphicProgressBar
 import com.example.ui.components.SevenDayTrendLineChart
 import com.example.ui.theme.ExpenseRed
+import com.example.ui.theme.HisabTheme
 import com.example.ui.theme.IncomeGreen
 import com.example.ui.theme.WarningAmber
+import com.example.ui.theme.neumorphicCircle
+import com.example.ui.theme.neumorphicInset
+import com.example.ui.theme.neumorphicRaised
 import com.example.util.CurrencyFormat
 
 @Composable
@@ -71,12 +78,17 @@ fun DashboardScreen(
   uiState: HisabUiState,
   isDarkTheme: Boolean,
   userName: String?,
+  isBusinessTallyMode: Boolean,
+  onToggleBusinessMode: (Boolean) -> Unit,
   onToggleTheme: () -> Unit,
   onSwitchAccount: (AccountType) -> Unit,
   onAddTransaction: () -> Unit,
   onEditTransaction: (TransactionRecord) -> Unit,
   onOpenTransactions: () -> Unit,
   onOpenReportsTab: (Int) -> Unit,
+  onAddParty: () -> Unit,
+  onOpenPartyDetail: (String) -> Unit,
+  onQuickAddPartyEntry: (PartyRecord) -> Unit,
   modifier: Modifier = Modifier,
 ) {
   val summary = uiState.dashboard
@@ -90,8 +102,8 @@ fun DashboardScreen(
 
     LazyColumn(
       modifier = Modifier.fillMaxSize(),
-      contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-      verticalArrangement = Arrangement.spacedBy(14.dp),
+      contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+      verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
       // Top Greeting + Theme Toggle
       item {
@@ -114,11 +126,14 @@ fun DashboardScreen(
               overflow = TextOverflow.Ellipsis,
             )
           }
-          IconButton(
-            onClick = onToggleTheme,
+          Box(
             modifier = Modifier
               .size(48.dp)
+              .neumorphicCircle(shadowElevation = 5.dp)
+              .clip(CircleShape)
+              .clickable(onClick = onToggleTheme)
               .testTag("dashboard_theme_toggle"),
+            contentAlignment = Alignment.Center,
           ) {
             Icon(
               imageVector = if (isDarkTheme) Icons.Rounded.LightMode else Icons.Rounded.DarkMode,
@@ -137,6 +152,27 @@ fun DashboardScreen(
         )
       }
 
+      if (uiState.activeAccount == AccountType.BUSINESS) {
+        item {
+          BusinessModeSwitcher(
+            isTallyMode = isBusinessTallyMode,
+            onSelectTallyMode = onToggleBusinessMode,
+          )
+        }
+      }
+
+      if (uiState.activeAccount == AccountType.BUSINESS && isBusinessTallyMode) {
+        item {
+          BusinessTallyKhataSection(
+            tallySummary = uiState.tallySummary,
+            allEntries = uiState.partyEntries,
+            onAddParty = onAddParty,
+            onSelectParty = onOpenPartyDetail,
+            onQuickAddEntry = onQuickAddPartyEntry,
+          )
+        }
+        item { Spacer(modifier = Modifier.height(16.dp)) }
+      } else {
       // Budget Alert Banner (80% / 100%)
       if (uiState.triggeredBudgetAlerts.isNotEmpty()) {
         item {
@@ -197,19 +233,17 @@ fun DashboardScreen(
 
       // Hero Total Available Balance + Today's Balance Card
       item {
+        val neo = HisabTheme.neumorphic
         Box(
           modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
-            .background(
-              Brush.linearGradient(
-                colors = listOf(
-                  Color(0xFF064E3B),
-                  Color(0xFF0B6E4F),
-                  Color(0xFF10B981),
-                )
-              )
+            .neumorphicRaised(
+              cornerRadius = 26.dp,
+              shadowElevation = 8.dp,
+              drawContainer = false,
             )
+            .clip(RoundedCornerShape(26.dp))
+            .background(Brush.linearGradient(colors = neo.heroGradient))
             .padding(20.dp),
         ) {
           Column(modifier = Modifier.fillMaxWidth()) {
@@ -376,10 +410,9 @@ fun DashboardScreen(
 
       // Savings Goals Preview Strip
       item {
-        Card(
-          shape = RoundedCornerShape(20.dp),
-          colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-          elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        NeumorphicCard(
+          cornerRadius = 22.dp,
+          shadowElevation = 6.dp,
           modifier = Modifier.fillMaxWidth(),
         ) {
           Column(modifier = Modifier.padding(16.dp)) {
@@ -408,7 +441,7 @@ fun DashboardScreen(
               }
             } else {
               accountGoals.take(2).forEach { goal ->
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 Row(
                   modifier = Modifier.fillMaxWidth(),
                   horizontalArrangement = Arrangement.SpaceBetween,
@@ -420,14 +453,10 @@ fun DashboardScreen(
                     color = MaterialTheme.colorScheme.primary,
                   )
                 }
-                Spacer(modifier = Modifier.height(4.dp))
-                LinearProgressIndicator(
-                  progress = { goal.progressFraction },
-                  modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(4.dp)),
-                  strokeCap = StrokeCap.Round,
+                Spacer(modifier = Modifier.height(6.dp))
+                NeumorphicProgressBar(
+                  progress = goal.progressFraction,
+                  height = 10.dp,
                 )
               }
             }
@@ -470,6 +499,58 @@ fun DashboardScreen(
       }
 
       item { Spacer(modifier = Modifier.height(16.dp)) }
+      }
+    }
+  }
+}
+
+@Composable
+private fun BusinessModeSwitcher(
+  isTallyMode: Boolean,
+  onSelectTallyMode: (Boolean) -> Unit,
+) {
+  val neo = HisabTheme.neumorphic
+  Box(
+    modifier = Modifier
+      .fillMaxWidth()
+      .neumorphicInset(cornerRadius = 16.dp)
+      .padding(4.dp),
+  ) {
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+      listOf(true to "ট্যালি খাতা (কাস্টমার/সাপ্লায়ার)", false to "ক্যাশবুক ও চার্ট").forEach { (tally, label) ->
+        val selected = isTallyMode == tally
+        val mod =
+          if (selected) {
+            Modifier
+              .weight(1f)
+              .neumorphicRaised(cornerRadius = 12.dp, shadowElevation = 3.dp, drawContainer = false)
+              .clip(RoundedCornerShape(12.dp))
+              .background(Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary)))
+          } else {
+            Modifier
+              .weight(1f)
+              .clip(RoundedCornerShape(12.dp))
+          }
+        Box(
+          modifier = mod
+            .clickable { onSelectTallyMode(tally) }
+            .padding(vertical = 9.dp, horizontal = 8.dp)
+            .testTag(if (tally) "business_mode_tally" else "business_mode_cashbook"),
+          contentAlignment = Alignment.Center,
+        ) {
+          Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+          )
+        }
+      }
     }
   }
 }
@@ -511,26 +592,27 @@ private fun KpiSummaryCard(
   icon: androidx.compose.ui.graphics.vector.ImageVector,
   modifier: Modifier = Modifier,
 ) {
-  Card(
-    shape = RoundedCornerShape(18.dp),
-    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+  NeumorphicCard(
+    cornerRadius = 20.dp,
+    shadowElevation = 5.dp,
     modifier = modifier,
   ) {
     Column(modifier = Modifier.padding(12.dp)) {
-      Surface(
-        shape = CircleShape,
-        color = accentColor.copy(alpha = 0.14f),
-        modifier = Modifier.size(32.dp),
+      Box(
+        modifier = Modifier
+          .size(34.dp)
+          .neumorphicCircle(
+            shadowElevation = 3.dp,
+            containerColor = accentColor.copy(alpha = 0.14f),
+          ),
+        contentAlignment = Alignment.Center,
       ) {
-        Box(contentAlignment = Alignment.Center) {
-          Icon(
-            imageVector = icon,
-            contentDescription = title,
-            tint = accentColor,
-            modifier = Modifier.size(18.dp),
-          )
-        }
+        Icon(
+          imageVector = icon,
+          contentDescription = title,
+          tint = accentColor,
+          modifier = Modifier.size(18.dp),
+        )
       }
       Spacer(modifier = Modifier.height(8.dp))
       Text(
@@ -560,12 +642,11 @@ private fun CompactTransactionRow(
 ) {
   val amountColor = if (tx.isIncome) IncomeGreen else ExpenseRed
   val sign = if (tx.isIncome) "+" else "-"
-  Card(
-    shape = RoundedCornerShape(16.dp),
-    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    modifier = Modifier
-      .fillMaxWidth()
-      .clickable(onClick = onClick),
+  NeumorphicCard(
+    cornerRadius = 18.dp,
+    shadowElevation = 5.dp,
+    onClick = onClick,
+    modifier = Modifier.fillMaxWidth(),
   ) {
     Row(
       modifier = Modifier
@@ -573,19 +654,21 @@ private fun CompactTransactionRow(
         .padding(horizontal = 14.dp, vertical = 12.dp),
       verticalAlignment = Alignment.CenterVertically,
     ) {
-      Surface(
-        shape = CircleShape,
-        color = amountColor.copy(alpha = 0.12f),
-        modifier = Modifier.size(40.dp),
+      Box(
+        modifier = Modifier
+          .size(42.dp)
+          .neumorphicCircle(
+            shadowElevation = 3.dp,
+            containerColor = amountColor.copy(alpha = 0.12f),
+          ),
+        contentAlignment = Alignment.Center,
       ) {
-        Box(contentAlignment = Alignment.Center) {
-          Icon(
-            imageVector = if (tx.isIncome) Icons.Rounded.ArrowDownward else Icons.Rounded.ArrowUpward,
-            contentDescription = null,
-            tint = amountColor,
-            modifier = Modifier.size(20.dp),
-          )
-        }
+        Icon(
+          imageVector = if (tx.isIncome) Icons.Rounded.ArrowDownward else Icons.Rounded.ArrowUpward,
+          contentDescription = null,
+          tint = amountColor,
+          modifier = Modifier.size(20.dp),
+        )
       }
       Spacer(modifier = Modifier.width(12.dp))
       Column(modifier = Modifier.weight(1f)) {

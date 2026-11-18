@@ -84,6 +84,41 @@
         "updatedAt": { "type": "string", "format": "date-time", "description": "Server update timestamp." }
       },
       "required": ["userId", "accountType", "name", "targetAmount", "savedAmount", "targetDateMillis", "targetDateKey", "createdAt", "updatedAt"]
+    },
+    "Party": {
+      "title": "Party",
+      "description": "Business Tally Khata customer or supplier contact.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "partyType": { "type": "string", "enum": ["customer", "supplier"], "description": "Party role." },
+        "name": { "type": "string", "description": "Customer or supplier name." },
+        "phone": { "type": "string", "description": "Optional phone number for calling and WhatsApp sharing." },
+        "address": { "type": "string", "description": "Optional shop or street address." },
+        "note": { "type": "string", "description": "Optional party note." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server update timestamp." }
+      },
+      "required": ["userId", "partyType", "name", "createdAt", "updatedAt"]
+    },
+    "PartyEntry": {
+      "title": "PartyEntry",
+      "description": "A single given/received credit-ledger entry for a business customer or supplier.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owner." },
+        "partyId": { "type": "string", "description": "Associated Party document ID." },
+        "entryType": { "type": "string", "enum": ["given", "received"], "description": "Whether money/goods were given or received." },
+        "amount": { "type": "number", "description": "Positive amount in BDT." },
+        "paymentMethod": { "type": "string", "enum": ["Cash", "bKash", "Nagad", "Rocket", "Bank", "Card", "Other"], "description": "Payment method." },
+        "dateMillis": { "type": "integer", "description": "Epoch milliseconds for the entry date." },
+        "dateKey": { "type": "string", "description": "Formatted date string in DD-MM-YYYY." },
+        "note": { "type": "string", "description": "Optional entry description." },
+        "clientRequestId": { "type": "string", "description": "Client idempotency token." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server update timestamp." }
+      },
+      "required": ["userId", "partyId", "entryType", "amount", "paymentMethod", "dateMillis", "dateKey", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -106,6 +141,14 @@
     "/users/{userId}/savingsGoals/{goalId}": {
       "schema": { "$ref": "#/entities/SavingsGoal" },
       "description": "User-owned savings goals."
+    },
+    "/users/{userId}/parties/{partyId}": {
+      "schema": { "$ref": "#/entities/Party" },
+      "description": "User-owned business Tally Khata customers and suppliers."
+    },
+    "/users/{userId}/partyEntries/{entryId}": {
+      "schema": { "$ref": "#/entities/PartyEntry" },
+      "description": "User-owned business Tally Khata ledger entries."
     }
   }
 }

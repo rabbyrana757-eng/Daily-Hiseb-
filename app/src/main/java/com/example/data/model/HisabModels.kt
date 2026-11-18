@@ -1,5 +1,6 @@
 package com.example.data.model
 
+import androidx.annotation.Keep
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.IgnoreExtraProperties
@@ -37,6 +38,32 @@ enum class PaymentMethod(val value: String, val labelBn: String) {
   companion object {
     fun fromValue(value: String?): PaymentMethod =
       entries.firstOrNull { it.value.equals(value, ignoreCase = true) } ?: CASH
+  }
+}
+
+enum class PartyType(val value: String, val labelBn: String) {
+  CUSTOMER("customer", "কাস্টমার"),
+  SUPPLIER("supplier", "সাপ্লায়ার");
+
+  companion object {
+    fun fromValue(value: String?): PartyType =
+      entries.firstOrNull { it.value == value } ?: CUSTOMER
+  }
+}
+
+enum class PartyEntryType(val value: String, val labelBn: String) {
+  GIVEN("given", "দিলাম"),
+  RECEIVED("received", "পেলাম");
+
+  fun contextLabel(partyType: PartyType): String =
+    when (partyType) {
+      PartyType.CUSTOMER -> if (this == GIVEN) "দিলাম (বাকি/বিক্রি)" else "পেলাম (জমা/আদায়)"
+      PartyType.SUPPLIER -> if (this == GIVEN) "দিলাম (পরিশোধ)" else "পেলাম (বাকি/মাল কেনা)"
+    }
+
+  companion object {
+    fun fromValue(value: String?): PartyEntryType =
+      entries.firstOrNull { it.value == value } ?: GIVEN
   }
 }
 
@@ -148,4 +175,39 @@ data class SavingsGoalRecord(
 
   val progressPercent: Int
     get() = if (targetAmount <= 0.0) 0 else ((savedAmount / targetAmount) * 100.0).toInt().coerceIn(0, 100)
+}
+
+@Keep
+@IgnoreExtraProperties
+data class PartyRecord(
+  @DocumentId val id: String = "",
+  val userId: String = "",
+  val partyType: String = PartyType.CUSTOMER.value,
+  val name: String = "",
+  val phone: String? = null,
+  val address: String? = null,
+  val note: String? = null,
+  @ServerTimestamp val createdAt: Timestamp? = null,
+  @ServerTimestamp val updatedAt: Timestamp? = null,
+) {
+  val role: PartyType get() = PartyType.fromValue(partyType)
+}
+
+@Keep
+@IgnoreExtraProperties
+data class PartyEntryRecord(
+  @DocumentId val id: String = "",
+  val userId: String = "",
+  val partyId: String = "",
+  val entryType: String = PartyEntryType.GIVEN.value,
+  val amount: Double = 0.0,
+  val paymentMethod: String = PaymentMethod.CASH.value,
+  val dateMillis: Long = 0L,
+  val dateKey: String = "",
+  val note: String? = null,
+  val clientRequestId: String? = null,
+  @ServerTimestamp val createdAt: Timestamp? = null,
+  @ServerTimestamp val updatedAt: Timestamp? = null,
+) {
+  val kind: PartyEntryType get() = PartyEntryType.fromValue(entryType)
 }

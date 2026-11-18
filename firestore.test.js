@@ -130,3 +130,68 @@ test("Budgets and SavingsGoals: owner CRUD succeeds, cross-user fails", async ()
   await assertFails(bobDb.collection("users").doc(ALICE_UID).collection("budgets").get());
   await assertFails(bobDb.collection("users").doc(ALICE_UID).collection("savingsGoals").get());
 });
+
+test("Tally Khata Parties & PartyEntries: owner CRUD succeeds, cross-user & invalid schemas fail", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const partyRef = aliceDb.collection("users").doc(ALICE_UID).collection("parties").doc("p_1");
+  await assertSucceeds(partyRef.set({
+    userId: ALICE_UID,
+    partyType: "customer",
+    name: "রহিম স্টোর",
+    phone: "01711223344",
+    createdAt: pastTimestamp(),
+    updatedAt: pastTimestamp(),
+  }));
+  await assertSucceeds(partyRef.update({
+    name: "রহিম এন্টারপ্রাইজ",
+    updatedAt: pastTimestamp(),
+  }));
+
+  const entryRef = aliceDb.collection("users").doc(ALICE_UID).collection("partyEntries").doc("pe_1");
+  await assertSucceeds(entryRef.set({
+    userId: ALICE_UID,
+    partyId: "p_1",
+    entryType: "given",
+    amount: 2500,
+    paymentMethod: "Cash",
+    dateMillis: 1794614132000,
+    dateKey: "13-11-2026",
+    note: "বাকি বিক্রি",
+    createdAt: pastTimestamp(),
+    updatedAt: pastTimestamp(),
+  }));
+  await assertSucceeds(entryRef.update({
+    amount: 3000,
+    updatedAt: pastTimestamp(),
+  }));
+
+  // Reject invalid partyType and negative entry amount
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).collection("parties").doc("p_bad").set({
+      userId: ALICE_UID,
+      partyType: "vendor",
+      name: "Test",
+      createdAt: pastTimestamp(),
+      updatedAt: pastTimestamp(),
+    })
+  );
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).collection("partyEntries").doc("pe_bad").set({
+      userId: ALICE_UID,
+      partyId: "p_1",
+      entryType: "given",
+      amount: -100,
+      paymentMethod: "Cash",
+      dateMillis: 1794614132000,
+      dateKey: "13-11-2026",
+      createdAt: pastTimestamp(),
+      updatedAt: pastTimestamp(),
+    })
+  );
+
+  // Cross-user isolation
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  await assertFails(bobDb.collection("users").doc(ALICE_UID).collection("parties").get());
+  await assertFails(bobDb.collection("users").doc(ALICE_UID).collection("partyEntries").get());
+  await assertFails(bobDb.collection("users").doc(ALICE_UID).collection("parties").doc("p_1").get());
+});

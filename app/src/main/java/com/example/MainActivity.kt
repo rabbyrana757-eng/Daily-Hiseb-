@@ -59,6 +59,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -69,19 +71,32 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.data.local.AppPreferences
+import com.example.data.local.LocalGuestHisabDataSource
 import com.example.data.local.ThemePreference
+import com.example.data.model.AccountType
+import com.example.data.model.PartyEntryRecord
+import com.example.data.model.PartyEntryType
+import com.example.data.model.PartyRecord
+import com.example.data.model.PartyType
 import com.example.data.model.TransactionRecord
 import com.example.data.repository.HisabRepository
 import com.example.ui.HisabViewModel
 import com.example.ui.auth.AuthScreen
 import com.example.ui.auth.authStateFlow
+import com.example.ui.auth.onGoogleSignInClicked
 import com.example.ui.auth.signOutFromApp
+import com.example.ui.screens.AddEditPartyEntrySheet
+import com.example.ui.screens.AddEditPartySheet
 import com.example.ui.screens.AddEditTransactionSheet
 import com.example.ui.screens.DashboardScreen
+import com.example.ui.screens.PartyDetailScreen
 import com.example.ui.screens.ReportsHubScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.TransactionsScreen
 import com.example.ui.theme.DailyHisabTheme
+import com.example.ui.theme.HisabTheme
+import com.example.ui.theme.neumorphicCircle
+import com.example.ui.theme.neumorphicRaised
 import com.example.util.ExportBackupManager
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
@@ -131,21 +146,55 @@ fun AppNavigation(
   isDarkTheme: Boolean,
   auth: FirebaseAuth = Firebase.auth,
 ) {
+  val scope = rememberCoroutineScope()
   val currentUser by auth.authStateFlow().collectAsStateWithLifecycle(initialValue = auth.currentUser)
+  val guestModeEnabled by preferences.guestModeEnabled.collectAsStateWithLifecycle(initialValue = null)
   val user = currentUser
 
-  if (user == null) {
-    AuthScreen(onAuthSuccess = {})
-  } else {
+  if (user != null) {
     key(user.uid) {
       MainAppShell(
         currentUserId = user.uid,
         userDisplayName = user.displayName,
         userEmail = user.email,
+        isGuestMode = false,
         preferences = preferences,
         themePreference = themePreference,
         isDarkTheme = isDarkTheme,
       )
+    }
+  } else {
+    when (guestModeEnabled) {
+      null -> {
+        Box(
+          modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        )
+      }
+      true -> {
+        key("guest_local") {
+          MainAppShell(
+            currentUserId = "guest_local",
+            userDisplayName = "অফলাইন গেস্ট",
+            userEmail = null,
+            isGuestMode = true,
+            preferences = preferences,
+            themePreference = themePreference,
+            isDarkTheme = isDarkTheme,
+          )
+        }
+      }
+      false -> {
+        AuthScreen(
+          onAuthSuccess = {
+            scope.launch { preferences.setGuestModeEnabled(false) }
+          },
+          onContinueAsGuest = {
+            scope.launch { preferences.setGuestModeEnabled(true) }
+          },
+        )
+      }
     }
   }
 }
@@ -155,6 +204,7 @@ private fun MainAppShell(
   currentUserId: String,
   userDisplayName: String?,
   userEmail: String?,
+  isGuestMode: Boolean,
   preferences: AppPreferences,
   themePreference: ThemePreference,
   isDarkTheme: Boolean,
@@ -170,15 +220,30 @@ private fun MainAppShell(
         val app = checkNotNull(this[APPLICATION_KEY]) {
           "APPLICATION_KEY missing from CreationExtras"
         }
-        val databaseId = app.getString(R.string.firestore_database_id)
-        val db = FirebaseFirestore.getInstance(databaseId)
-        HisabViewModel(
-          repository = HisabRepository(db, Firebase.auth),
-          preferences = preferences,
-          currentUserId = currentUserId,
-          userDisplayName = userDisplayName,
-          userEmail = userEmail,
-        )
+        val localGuestDataSource = LocalGuestHisabDataSource(app)
+        if (isGuestMode) {
+          HisabViewModel(
+            repository = localGuestDataSource,
+            preferences = preferences,
+            currentUserId = currentUserId,
+            userDisplayName = userDisplayName,
+            userEmail = userEmail,
+            isGuestMode = true,
+            localGuestDataSource = null,
+          )
+        } else {
+          val databaseId = app.getString(R.string.firestore_database_id)
+          val db = FirebaseFirestore.getInstance(databaseId)
+          HisabViewModel(
+            repository = HisabRepository(db, Firebase.auth),
+            preferences = preferences,
+            currentUserId = currentUserId,
+            userDisplayName = userDisplayName,
+            userEmail = userEmail,
+            isGuestMode = false,
+            localGuestDataSource = localGuestDataSource,
+          )
+        }
       }
     },
   )
@@ -190,6 +255,17 @@ private fun MainAppShell(
   var selectedReportsSubTab by remember { mutableIntStateOf(0) }
   var showAddSheet by remember { mutableStateOf(false) }
   var editingTransaction by remember { mutableStateOf<TransactionRecord?>(null) }
+  var isLinkingGoogle by remember { mutableStateOf(false) }
+
+  // Business Tally Khata UI states
+  var isBusinessTallyMode by remember { mutableStateOf(true) }
+  var selectedPartyId by remember { mutableStateOf<String?>(null) }
+  var showAddPartySheet by remember { mutableStateOf(false) }
+  var editingParty by remember { mutableStateOf<PartyRecord?>(null) }
+  var showAddPartyEntrySheet by remember { mutableStateOf(false) }
+  var entryTargetPartyId by remember { mutableStateOf<String?>(null) }
+  var initialEntryType by remember { mutableStateOf(PartyEntryType.GIVEN) }
+  var editingPartyEntry by remember { mutableStateOf<PartyEntryRecord?>(null) }
 
   // Show snackbar for errors or feedback messages
   LaunchedEffect(uiState.snackbarMessage, uiState.errorMessage) {
@@ -266,6 +342,8 @@ private fun MainAppShell(
             categories = uiState.customCategories,
             budgets = uiState.budgets,
             goals = uiState.savingsGoals,
+            parties = uiState.parties,
+            partyEntries = uiState.partyEntries,
           )
           context.contentResolver.openOutputStream(uri)?.use { out ->
             out.write(json.toByteArray(Charsets.UTF_8))
@@ -312,16 +390,23 @@ private fun MainAppShell(
 
     Scaffold(
       snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+      containerColor = MaterialTheme.colorScheme.background,
       contentWindowInsets = WindowInsets(0, 0, 0, 0),
       bottomBar = {
         if (!useNavRail) {
-          Surface(
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 4.dp,
-            shadowElevation = 6.dp,
+          val neo = HisabTheme.neumorphic
+          Box(
+            modifier = Modifier
+              .padding(top = 6.dp)
+              .neumorphicRaised(
+                cornerRadius = 24.dp,
+                shadowElevation = 7.dp,
+              )
+              .clip(androidx.compose.foundation.shape.RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)),
           ) {
             NavigationBar(
-              containerColor = MaterialTheme.colorScheme.surface,
+              containerColor = Color.Transparent,
+              tonalElevation = 0.dp,
               modifier = Modifier.navigationBarsPadding(),
             ) {
               // 1. হোম
@@ -350,7 +435,7 @@ private fun MainAppShell(
                 label = { Text("লেনদেন") },
                 modifier = Modifier.testTag("nav_transactions"),
               )
-              // 3. + Add (Center Prominent Action)
+              // 3. + Add (Center Prominent Neomorphic Orb)
               Box(
                 modifier = Modifier
                   .weight(1f)
@@ -360,11 +445,24 @@ private fun MainAppShell(
                 Box(
                   modifier = Modifier
                     .size(52.dp)
+                    .neumorphicCircle(shadowElevation = 5.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary)
+                    .background(Brush.linearGradient(neo.heroGradient))
                     .clickable {
-                      editingTransaction = null
-                      showAddSheet = true
+                      if (uiState.activeAccount == AccountType.BUSINESS && isBusinessTallyMode && selectedNav == MainNavTab.HOME) {
+                        if (uiState.parties.isEmpty()) {
+                          editingParty = null
+                          showAddPartySheet = true
+                        } else {
+                          editingPartyEntry = null
+                          entryTargetPartyId = selectedPartyId
+                          initialEntryType = PartyEntryType.GIVEN
+                          showAddPartyEntrySheet = true
+                        }
+                      } else {
+                        editingTransaction = null
+                        showAddSheet = true
+                      }
                     }
                     .testTag("nav_add_transaction"),
                   contentAlignment = Alignment.Center,
@@ -372,7 +470,7 @@ private fun MainAppShell(
                   Icon(
                     imageVector = Icons.Rounded.Add,
                     contentDescription = "লেনদেন যোগ করুন",
-                    tint = MaterialTheme.colorScheme.onPrimary,
+                    tint = Color.White,
                     modifier = Modifier.size(28.dp),
                   )
                 }
@@ -427,8 +525,20 @@ private fun MainAppShell(
               Spacer(modifier = Modifier.height(12.dp))
               FloatingActionButton(
                 onClick = {
-                  editingTransaction = null
-                  showAddSheet = true
+                  if (uiState.activeAccount == AccountType.BUSINESS && isBusinessTallyMode && selectedNav == MainNavTab.HOME) {
+                    if (uiState.parties.isEmpty()) {
+                      editingParty = null
+                      showAddPartySheet = true
+                    } else {
+                      editingPartyEntry = null
+                      entryTargetPartyId = selectedPartyId
+                      initialEntryType = PartyEntryType.GIVEN
+                      showAddPartyEntrySheet = true
+                    }
+                  } else {
+                    editingTransaction = null
+                    showAddSheet = true
+                  }
                 },
                 containerColor = MaterialTheme.colorScheme.primary,
                 elevation = FloatingActionButtonDefaults.elevation(2.dp),
@@ -473,31 +583,87 @@ private fun MainAppShell(
               .fillMaxSize(),
           ) {
             when (selectedNav) {
-              MainNavTab.HOME -> DashboardScreen(
-                uiState = uiState,
-                isDarkTheme = isDarkTheme,
-                userName = userDisplayName,
-                onToggleTheme = {
-                  scope.launch {
-                    val next = if (isDarkTheme) ThemePreference.LIGHT else ThemePreference.DARK
-                    preferences.setThemePreference(next)
+              MainNavTab.HOME -> {
+                val activePartySummary =
+                  selectedPartyId?.let { pid ->
+                    uiState.tallySummary.partySummaries.firstOrNull { it.party.id == pid }
                   }
-                },
-                onSwitchAccount = { viewModel.switchAccount(it) },
-                onAddTransaction = {
-                  editingTransaction = null
-                  showAddSheet = true
-                },
-                onEditTransaction = { tx ->
-                  editingTransaction = tx
-                  showAddSheet = true
-                },
-                onOpenTransactions = { selectedNav = MainNavTab.TRANSACTIONS },
-                onOpenReportsTab = { subIdx ->
-                  selectedReportsSubTab = subIdx
-                  selectedNav = MainNavTab.REPORTS
-                },
-              )
+                if (uiState.activeAccount == AccountType.BUSINESS && activePartySummary != null) {
+                  val partyEntriesForDetail =
+                    uiState.partyEntries.filter { it.partyId == activePartySummary.party.id }
+                  PartyDetailScreen(
+                    summary = activePartySummary,
+                    entries = partyEntriesForDetail,
+                    onBack = { selectedPartyId = null },
+                    onEditParty = { party ->
+                      editingParty = party
+                      showAddPartySheet = true
+                    },
+                    onDeleteParty = { pid ->
+                      viewModel.deleteParty(pid) {
+                        selectedPartyId = null
+                      }
+                    },
+                    onAddEntry = { entryType ->
+                      editingPartyEntry = null
+                      entryTargetPartyId = activePartySummary.party.id
+                      initialEntryType = entryType
+                      showAddPartyEntrySheet = true
+                    },
+                    onEditEntry = { entry ->
+                      editingPartyEntry = entry
+                      entryTargetPartyId = entry.partyId
+                      initialEntryType = entry.kind
+                      showAddPartyEntrySheet = true
+                    },
+                    onDeleteEntry = { entryId ->
+                      viewModel.deletePartyEntry(entryId)
+                    },
+                  )
+                } else {
+                  DashboardScreen(
+                    uiState = uiState,
+                    isDarkTheme = isDarkTheme,
+                    userName = userDisplayName,
+                    isBusinessTallyMode = isBusinessTallyMode,
+                    onToggleBusinessMode = { isBusinessTallyMode = it },
+                    onToggleTheme = {
+                      scope.launch {
+                        val next = if (isDarkTheme) ThemePreference.LIGHT else ThemePreference.DARK
+                        preferences.setThemePreference(next)
+                      }
+                    },
+                    onSwitchAccount = {
+                      selectedPartyId = null
+                      viewModel.switchAccount(it)
+                    },
+                    onAddTransaction = {
+                      editingTransaction = null
+                      showAddSheet = true
+                    },
+                    onEditTransaction = { tx ->
+                      editingTransaction = tx
+                      showAddSheet = true
+                    },
+                    onOpenTransactions = { selectedNav = MainNavTab.TRANSACTIONS },
+                    onOpenReportsTab = { subIdx ->
+                      selectedReportsSubTab = subIdx
+                      selectedNav = MainNavTab.REPORTS
+                    },
+                    onAddParty = {
+                      editingParty = null
+                      showAddPartySheet = true
+                    },
+                    onOpenPartyDetail = { pid -> selectedPartyId = pid },
+                    onQuickAddPartyEntry = { party ->
+                      editingPartyEntry = null
+                      entryTargetPartyId = party.id
+                      initialEntryType = PartyEntryType.GIVEN
+                      showAddPartyEntrySheet = true
+                    },
+                  )
+                }
+              }
 
               MainNavTab.TRANSACTIONS -> TransactionsScreen(
                 uiState = uiState,
@@ -507,6 +673,13 @@ private fun MainAppShell(
                   showAddSheet = true
                 },
                 onDeleteTransaction = { viewModel.deleteTransaction(it) },
+                onEditPartyEntry = { entry ->
+                  editingPartyEntry = entry
+                  entryTargetPartyId = entry.partyId
+                  initialEntryType = entry.kind
+                  showAddPartyEntrySheet = true
+                },
+                onDeletePartyEntry = { viewModel.deletePartyEntry(it) },
               )
 
               MainNavTab.REPORTS -> ReportsHubScreen(
@@ -568,7 +741,37 @@ private fun MainAppShell(
                   restoreLauncher.launch(arrayOf("application/json", "*/*"))
                 },
                 onSignOut = {
-                  signOutFromApp(credentialManager = credentialManager, scope = scope)
+                  if (isGuestMode) {
+                    scope.launch { preferences.setGuestModeEnabled(false) }
+                  } else {
+                    signOutFromApp(credentialManager = credentialManager, scope = scope)
+                  }
+                },
+                isGuestMode = isGuestMode,
+                isLinkingGoogle = isLinkingGoogle,
+                onLinkGoogleAccount = {
+                  isLinkingGoogle = true
+                  scope.launch {
+                    preferences.setMigrateGuestOnSignIn(true)
+                    onGoogleSignInClicked(
+                      context = context,
+                      credentialManager = credentialManager,
+                      onAuthSuccess = {
+                        isLinkingGoogle = false
+                        scope.launch { preferences.setGuestModeEnabled(false) }
+                      },
+                      onAuthError = { msg ->
+                        isLinkingGoogle = false
+                        scope.launch { preferences.setMigrateGuestOnSignIn(false) }
+                        viewModel.showMessage(msg)
+                      },
+                      scope = scope,
+                      onAuthCancelled = {
+                        isLinkingGoogle = false
+                        scope.launch { preferences.setMigrateGuestOnSignIn(false) }
+                      },
+                    )
+                  }
                 },
               )
             }
@@ -608,6 +811,69 @@ private fun MainAppShell(
       onDismiss = {
         showAddSheet = false
         editingTransaction = null
+      },
+    )
+  }
+
+  if (showAddPartySheet) {
+    AddEditPartySheet(
+      editingParty = editingParty,
+      defaultPartyType = PartyType.CUSTOMER,
+      isSubmitting = uiState.isSubmitting,
+      onSave = { editingId, partyType, name, phone, address, note ->
+        viewModel.saveParty(
+          editingId = editingId,
+          partyType = partyType,
+          name = name,
+          phone = phone,
+          address = address,
+          note = note,
+          onSuccess = { createdOrUpdatedId ->
+            showAddPartySheet = false
+            editingParty = null
+            if (showAddPartyEntrySheet) {
+              entryTargetPartyId = createdOrUpdatedId
+            }
+          },
+        )
+      },
+      onDismiss = {
+        showAddPartySheet = false
+        editingParty = null
+      },
+    )
+  }
+
+  if (showAddPartyEntrySheet) {
+    AddEditPartyEntrySheet(
+      parties = uiState.parties,
+      initialPartyId = entryTargetPartyId,
+      initialEntryType = initialEntryType,
+      editingEntry = editingPartyEntry,
+      isSubmitting = uiState.isSubmitting,
+      onQuickAddParty = {
+        editingParty = null
+        showAddPartySheet = true
+      },
+      onSave = { editingId, partyId, entryType, amount, pm, dateMillis, note, reqId ->
+        viewModel.savePartyEntry(
+          editingId = editingId,
+          partyId = partyId,
+          entryType = entryType,
+          amount = amount,
+          paymentMethod = pm,
+          dateMillis = dateMillis,
+          note = note,
+          clientRequestId = reqId,
+          onSuccess = {
+            showAddPartyEntrySheet = false
+            editingPartyEntry = null
+          },
+        )
+      },
+      onDismiss = {
+        showAddPartyEntrySheet = false
+        editingPartyEntry = null
       },
     )
   }

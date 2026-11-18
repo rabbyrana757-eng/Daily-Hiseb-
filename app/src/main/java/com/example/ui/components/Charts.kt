@@ -19,10 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -51,7 +48,11 @@ import com.example.domain.DailyTrendPoint
 import com.example.domain.MonthlyBarPoint
 import com.example.ui.theme.ChartPalette
 import com.example.ui.theme.ExpenseRed
+import com.example.ui.theme.HisabTheme
 import com.example.ui.theme.IncomeGreen
+import com.example.ui.theme.neumorphicCircle
+import com.example.ui.theme.neumorphicInset
+import com.example.ui.theme.neumorphicRaised
 import com.example.util.CurrencyFormat
 import kotlin.math.atan2
 import kotlin.math.min
@@ -64,10 +65,9 @@ fun ChartCardContainer(
   modifier: Modifier = Modifier,
   content: @Composable () -> Unit,
 ) {
-  Card(
-    shape = RoundedCornerShape(20.dp),
-    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+  NeumorphicCard(
+    cornerRadius = 22.dp,
+    shadowElevation = 6.dp,
     modifier = modifier.fillMaxWidth(),
   ) {
     Column(modifier = Modifier.padding(16.dp)) {
@@ -118,9 +118,10 @@ fun DailyExpenseBarChart(
     if (!hasData) {
       ChartEmptyHint("এই মাসে এখনো কোনো খরচের তথ্য নেই")
     } else {
-      val barColor = MaterialTheme.colorScheme.primary
-      val selectedColor = MaterialTheme.colorScheme.tertiary
-      val gridColor = MaterialTheme.colorScheme.outlineVariant
+      val neo = HisabTheme.neumorphic
+      val barBrush = Brush.verticalGradient(neo.barGradient)
+      val selectedBrush = Brush.verticalGradient(neo.selectedBarGradient)
+      val trackColor = neo.insetSurface
 
       Canvas(
         modifier = Modifier
@@ -138,22 +139,30 @@ fun DailyExpenseBarChart(
       ) {
         val h = size.height
         val w = size.width
-        drawLine(gridColor, Offset(0f, h * 0.5f), Offset(w, h * 0.5f), strokeWidth = 1f)
-        drawLine(gridColor, Offset(0f, h - 1f), Offset(w, h - 1f), strokeWidth = 1.5f)
-
         val slotW = w / bars.size.toFloat()
-        val barW = (slotW * 0.62f).coerceAtLeast(3f)
+        val barW = (slotW * 0.64f).coerceAtLeast(3.5f)
+        val radius = CornerRadius(barW / 2f, barW / 2f)
+
         bars.forEachIndexed { idx, (_, value) ->
-          val ratio = ((value / maxVal).toFloat()).coerceIn(0f, 1f) * progress
-          val barH = (ratio * (h - 14f)).coerceAtLeast(if (value > 0) 4f else 0f)
           val left = idx * slotW + (slotW - barW) / 2f
-          val top = h - barH
+          // Recessed neomorphic capsule track behind every day bar
           drawRoundRect(
-            color = if (idx == selectedIndex) selectedColor else barColor,
-            topLeft = Offset(left, top),
-            size = Size(barW, barH),
-            cornerRadius = CornerRadius(6f, 6f),
+            color = trackColor,
+            topLeft = Offset(left, 4f),
+            size = Size(barW, h - 4f),
+            cornerRadius = radius,
           )
+          if (value > 0.0) {
+            val ratio = ((value / maxVal).toFloat()).coerceIn(0f, 1f) * progress
+            val barH = (ratio * (h - 8f)).coerceAtLeast(barW.coerceAtMost(h - 8f))
+            val top = h - barH
+            drawRoundRect(
+              brush = if (idx == selectedIndex) selectedBrush else barBrush,
+              topLeft = Offset(left, top),
+              size = Size(barW, barH),
+              cornerRadius = radius,
+            )
+          }
         }
       }
       Spacer(modifier = Modifier.height(6.dp))
@@ -196,7 +205,11 @@ fun MonthlyIncomeExpenseChart(
     if (points.all { it.income == 0.0 && it.expense == 0.0 }) {
       ChartEmptyHint("তুলনা দেখানোর জন্য লেনদেন যোগ করুন")
     } else {
-      val gridColor = MaterialTheme.colorScheme.outlineVariant
+      val neo = HisabTheme.neumorphic
+      val trackColor = neo.insetSurface
+      val incomeBrush = Brush.verticalGradient(listOf(Color(0xFF34D399), IncomeGreen))
+      val expenseBrush = Brush.verticalGradient(listOf(Color(0xFFFB7185), ExpenseRed))
+
       Canvas(
         modifier = Modifier
           .fillMaxWidth()
@@ -212,32 +225,50 @@ fun MonthlyIncomeExpenseChart(
       ) {
         val h = size.height
         val w = size.width
-        drawLine(gridColor, Offset(0f, h * 0.5f), Offset(w, h * 0.5f), strokeWidth = 1f)
-        drawLine(gridColor, Offset(0f, h - 1f), Offset(w, h - 1f), strokeWidth = 1.5f)
-
         val groupW = w / points.size.toFloat()
-        val barW = (groupW * 0.28f).coerceAtLeast(8f)
-        val gap = (groupW * 0.08f).coerceAtLeast(4f)
+        val barW = (groupW * 0.28f).coerceAtLeast(10f)
+        val gap = (groupW * 0.10f).coerceAtLeast(5f)
+        val radius = CornerRadius(barW / 2f, barW / 2f)
+
         points.forEachIndexed { idx, pt ->
           val centerX = idx * groupW + groupW / 2f
-          val incH = ((pt.income / maxVal).toFloat() * (h - 14f) * progress).coerceAtLeast(if (pt.income > 0) 4f else 0f)
-          val expH = ((pt.expense / maxVal).toFloat() * (h - 14f) * progress).coerceAtLeast(if (pt.expense > 0) 4f else 0f)
+          val incLeft = centerX - barW - gap / 2f
+          val expLeft = centerX + gap / 2f
 
           drawRoundRect(
-            color = IncomeGreen,
-            topLeft = Offset(centerX - barW - gap / 2f, h - incH),
-            size = Size(barW, incH),
-            cornerRadius = CornerRadius(6f, 6f),
+            color = trackColor,
+            topLeft = Offset(incLeft, 4f),
+            size = Size(barW, h - 4f),
+            cornerRadius = radius,
           )
           drawRoundRect(
-            color = ExpenseRed,
-            topLeft = Offset(centerX + gap / 2f, h - expH),
-            size = Size(barW, expH),
-            cornerRadius = CornerRadius(6f, 6f),
+            color = trackColor,
+            topLeft = Offset(expLeft, 4f),
+            size = Size(barW, h - 4f),
+            cornerRadius = radius,
           )
+
+          if (pt.income > 0.0) {
+            val incH = ((pt.income / maxVal).toFloat() * (h - 8f) * progress).coerceAtLeast(barW.coerceAtMost(h - 8f))
+            drawRoundRect(
+              brush = incomeBrush,
+              topLeft = Offset(incLeft, h - incH),
+              size = Size(barW, incH),
+              cornerRadius = radius,
+            )
+          }
+          if (pt.expense > 0.0) {
+            val expH = ((pt.expense / maxVal).toFloat() * (h - 8f) * progress).coerceAtLeast(barW.coerceAtMost(h - 8f))
+            drawRoundRect(
+              brush = expenseBrush,
+              topLeft = Offset(expLeft, h - expH),
+              size = Size(barW, expH),
+              cornerRadius = radius,
+            )
+          }
         }
       }
-      Spacer(modifier = Modifier.height(6.dp))
+      Spacer(modifier = Modifier.height(8.dp))
       Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceEvenly,
@@ -285,6 +316,7 @@ fun CategoryPieChart(
     if (slices.isEmpty()) {
       ChartEmptyHint("এই মাসে কোনো খরচ রেকর্ড হয়নি")
     } else {
+      val neo = HisabTheme.neumorphic
       val total = slices.sumOf { it.amount }
       val safeSelected = selectedIndex.coerceIn(0, slices.lastIndex)
       val activeSlice = slices[safeSelected]
@@ -294,12 +326,16 @@ fun CategoryPieChart(
         verticalAlignment = Alignment.CenterVertically,
       ) {
         Box(
-          modifier = Modifier.size(160.dp),
+          modifier = Modifier
+            .size(164.dp)
+            .padding(6.dp)
+            .neumorphicCircle(shadowElevation = 5.dp),
           contentAlignment = Alignment.Center,
         ) {
           Canvas(
             modifier = Modifier
               .fillMaxSize()
+              .padding(8.dp)
               .pointerInput(slices) {
                 detectTapGestures { offset ->
                   val cx = size.width / 2f
@@ -324,9 +360,19 @@ fun CategoryPieChart(
                 }
               }
           ) {
-            val strokeW = size.minDimension * 0.24f
+            val strokeW = size.minDimension * 0.22f
             val pad = strokeW / 2f + 4f
             val arcSize = Size(size.width - pad * 2f, size.height - pad * 2f)
+            // Recessed ring track behind the donut
+            drawArc(
+              color = neo.insetSurface,
+              startAngle = 0f,
+              sweepAngle = 360f,
+              useCenter = false,
+              topLeft = Offset(pad, pad),
+              size = arcSize,
+              style = Stroke(width = strokeW),
+            )
             var startAngle = -90f
             slices.forEachIndexed { idx, slice ->
               val sweep = ((slice.percentage / 100f) * 360f) * sweepScale
@@ -334,16 +380,22 @@ fun CategoryPieChart(
               drawArc(
                 color = color,
                 startAngle = startAngle,
-                sweepAngle = (sweep - 1.5f).coerceAtLeast(1f),
+                sweepAngle = (sweep - 2f).coerceAtLeast(1f),
                 useCenter = false,
                 topLeft = Offset(pad, pad),
                 size = arcSize,
-                style = Stroke(width = if (idx == safeSelected) strokeW * 1.15f else strokeW, cap = StrokeCap.Butt),
+                style = Stroke(
+                  width = if (idx == safeSelected) strokeW * 1.15f else strokeW,
+                  cap = StrokeCap.Round,
+                ),
               )
               startAngle += sweep
             }
           }
-          Column(horizontalAlignment = Alignment.CenterHorizontally) {
+          Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(horizontal = 16.dp),
+          ) {
             Text(
               text = activeSlice.category,
               style = MaterialTheme.typography.labelSmall,
@@ -355,7 +407,7 @@ fun CategoryPieChart(
               text = "${activeSlice.percentage.toInt()}%",
               style = MaterialTheme.typography.titleMedium,
               fontWeight = FontWeight.Bold,
-              color = MaterialTheme.colorScheme.primary,
+              color = MaterialTheme.colorScheme.secondary,
             )
             Text(
               text = CurrencyFormat.formatCompactBdt(total),
@@ -377,13 +429,16 @@ fun CategoryPieChart(
             Row(
               modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(
-                  if (isSel) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                  else Color.Transparent
-                )
+                .let { mod ->
+                  if (isSel) {
+                    mod.neumorphicInset(cornerRadius = 10.dp)
+                  } else {
+                    mod
+                  }
+                }
+                .clip(RoundedCornerShape(10.dp))
                 .clickable { selectedIndex = idx }
-                .padding(horizontal = 6.dp, vertical = 4.dp),
+                .padding(horizontal = 8.dp, vertical = 5.dp),
               verticalAlignment = Alignment.CenterVertically,
             ) {
               Box(
@@ -439,10 +494,12 @@ fun SevenDayTrendLineChart(
     if (points.all { it.amount == 0.0 }) {
       ChartEmptyHint("গত ৭ দিনে কোনো খরচ হয়নি")
     } else {
-      val lineColor = MaterialTheme.colorScheme.primary
-      val fillColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
-      val dotHighlight = MaterialTheme.colorScheme.tertiary
+      val neo = HisabTheme.neumorphic
+      val primaryLine = MaterialTheme.colorScheme.primary
+      val secondaryLine = MaterialTheme.colorScheme.secondary
+      val dotHighlight = MaterialTheme.colorScheme.secondary
       val gridColor = MaterialTheme.colorScheme.outlineVariant
+      val nodeCenterColor = neo.surface
 
       Canvas(
         modifier = Modifier
@@ -490,25 +547,27 @@ fun SevenDayTrendLineChart(
           }
           drawPath(
             path = areaPath,
-            brush = Brush.verticalGradient(listOf(fillColor, Color.Transparent)),
+            brush = Brush.verticalGradient(
+              listOf(secondaryLine.copy(alpha = 0.22f), primaryLine.copy(alpha = 0.03f), Color.Transparent)
+            ),
           )
           drawPath(
             path = linePath,
-            color = lineColor,
-            style = Stroke(width = 5f, cap = StrokeCap.Round),
+            brush = Brush.horizontalGradient(listOf(primaryLine, secondaryLine)),
+            style = Stroke(width = 6f, cap = StrokeCap.Round),
           )
         }
 
         coords.forEachIndexed { idx, pt ->
           val isSel = idx == selectedIdx
           drawCircle(
-            color = if (isSel) dotHighlight else lineColor,
-            radius = if (isSel) 10f else 6f,
+            color = if (isSel) dotHighlight else primaryLine,
+            radius = if (isSel) 11f else 7f,
             center = pt,
           )
           drawCircle(
-            color = Color.White,
-            radius = if (isSel) 4.5f else 2.5f,
+            color = nodeCenterColor,
+            radius = if (isSel) 5f else 3f,
             center = pt,
           )
         }
@@ -552,19 +611,18 @@ private fun LegendDot(color: Color, label: String) {
 
 @Composable
 private fun ChartEmptyHint(text: String) {
-  Surface(
-    shape = RoundedCornerShape(12.dp),
-    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+  Box(
     modifier = Modifier
       .fillMaxWidth()
-      .height(100.dp),
+      .height(100.dp)
+      .neumorphicInset(cornerRadius = 14.dp)
+      .padding(12.dp),
+    contentAlignment = Alignment.Center,
   ) {
-    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(12.dp)) {
-      Text(
-        text = text,
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
-    }
+    Text(
+      text = text,
+      style = MaterialTheme.typography.bodyMedium,
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
   }
 }

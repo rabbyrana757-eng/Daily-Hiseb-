@@ -23,7 +23,9 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudDone
+import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.Login
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.TableView
@@ -32,6 +34,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -59,6 +62,8 @@ import com.example.data.model.TransactionType
 import com.example.ui.HisabUiState
 import com.example.ui.components.AccountSwitcherPill
 import com.example.ui.components.ConfirmDeleteDialog
+import com.example.ui.components.NeumorphicCard
+import com.example.ui.theme.neumorphicCircle
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -76,6 +81,9 @@ fun SettingsScreen(
   onBackupData: () -> Unit,
   onRestoreData: () -> Unit,
   onSignOut: () -> Unit,
+  isGuestMode: Boolean = false,
+  isLinkingGoogle: Boolean = false,
+  onLinkGoogleAccount: () -> Unit = {},
   modifier: Modifier = Modifier,
 ) {
   var showAddCatDialog by remember { mutableStateOf(false) }
@@ -84,8 +92,8 @@ fun SettingsScreen(
 
   LazyColumn(
     modifier = modifier.fillMaxSize(),
-    contentPadding = PaddingValues(16.dp),
-    verticalArrangement = Arrangement.spacedBy(14.dp),
+    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+    verticalArrangement = Arrangement.spacedBy(16.dp),
   ) {
     item {
       Text(
@@ -96,57 +104,93 @@ fun SettingsScreen(
 
     // User Account & Cloud Sync Card
     item {
-      Card(
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+      NeumorphicCard(
+        cornerRadius = 22.dp,
+        shadowElevation = 6.dp,
         modifier = Modifier.fillMaxWidth(),
       ) {
-        Row(
+        Column(
           modifier = Modifier
             .fillMaxWidth()
             .padding(16.dp),
-          verticalAlignment = Alignment.CenterVertically,
         ) {
-          Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primaryContainer,
-            modifier = Modifier.size(52.dp),
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
           ) {
-            Box(contentAlignment = Alignment.Center) {
+            Box(
+              modifier = Modifier
+                .size(54.dp)
+                .neumorphicCircle(
+                  shadowElevation = 4.dp,
+                  containerColor = MaterialTheme.colorScheme.primaryContainer,
+                ),
+              contentAlignment = Alignment.Center,
+            ) {
               Text(
                 text = (userName?.firstOrNull() ?: 'U').uppercaseChar().toString(),
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
               )
             }
-          }
-          Spacer(modifier = Modifier.width(12.dp))
-          Column(modifier = Modifier.weight(1f)) {
-            Text(
-              text = userName?.takeIf { it.isNotBlank() } ?: "ব্যবহারকারী",
-              style = MaterialTheme.typography.titleMedium,
-            )
-            if (!userEmail.isNullOrBlank()) {
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
               Text(
-                text = userEmail,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = userName?.takeIf { it.isNotBlank() }
+                  ?: if (isGuestMode) "অফলাইন গেস্ট" else "ব্যবহারকারী",
+                style = MaterialTheme.typography.titleMedium,
               )
+              if (!userEmail.isNullOrBlank()) {
+                Text(
+                  text = userEmail,
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+              }
+              Spacer(modifier = Modifier.height(4.dp))
+              Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                  imageVector = if (isGuestMode) Icons.Rounded.CloudOff else Icons.Rounded.CloudDone,
+                  contentDescription = null,
+                  tint = if (isGuestMode) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary,
+                  modifier = Modifier.size(16.dp),
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                  text = if (isGuestMode) "অফলাইন মোড — শুধু এই ফোনে সংরক্ষিত" else "Firebase ক্লাউড সিঙ্ক সক্রিয়",
+                  style = MaterialTheme.typography.labelMedium,
+                  color = if (isGuestMode) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary,
+                )
+              }
             }
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-              Icon(
-                Icons.Rounded.CloudDone,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(16.dp),
-              )
-              Spacer(modifier = Modifier.width(4.dp))
-              Text(
-                text = "Firebase ক্লাউড সিঙ্ক সক্রিয়",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-              )
+          }
+
+          if (isGuestMode) {
+            Spacer(modifier = Modifier.height(14.dp))
+            Button(
+              onClick = onLinkGoogleAccount,
+              enabled = !isLinkingGoogle,
+              shape = RoundedCornerShape(14.dp),
+              modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .testTag("link_google_account_button"),
+            ) {
+              if (isLinkingGoogle) {
+                CircularProgressIndicator(
+                  modifier = Modifier.size(20.dp),
+                  color = MaterialTheme.colorScheme.onPrimary,
+                  strokeWidth = 2.dp,
+                )
+              } else {
+                Icon(
+                  imageVector = Icons.Rounded.Login,
+                  contentDescription = null,
+                  modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Google অ্যাকাউন্ট যুক্ত ও সিঙ্ক করুন")
+              }
             }
           }
         }
@@ -155,9 +199,9 @@ fun SettingsScreen(
 
     // Account Switcher
     item {
-      Card(
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+      NeumorphicCard(
+        cornerRadius = 20.dp,
+        shadowElevation = 5.dp,
         modifier = Modifier.fillMaxWidth(),
       ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -173,9 +217,9 @@ fun SettingsScreen(
 
     // Theme Mode (Light / Dark / System)
     item {
-      Card(
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+      NeumorphicCard(
+        cornerRadius = 20.dp,
+        shadowElevation = 5.dp,
         modifier = Modifier.fillMaxWidth(),
       ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -204,9 +248,9 @@ fun SettingsScreen(
 
     // Custom Categories Management
     item {
-      Card(
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+      NeumorphicCard(
+        cornerRadius = 20.dp,
+        shadowElevation = 5.dp,
         modifier = Modifier.fillMaxWidth(),
       ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -262,9 +306,9 @@ fun SettingsScreen(
 
     // Export Reports & Backup / Restore
     item {
-      Card(
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+      NeumorphicCard(
+        cornerRadius = 20.dp,
+        shadowElevation = 5.dp,
         modifier = Modifier.fillMaxWidth(),
       ) {
         Column(
@@ -336,7 +380,7 @@ fun SettingsScreen(
       }
     }
 
-    // Sign Out
+    // Sign Out / Return to Login
     item {
       OutlinedButton(
         onClick = { showSignOutConfirm = true },
@@ -349,7 +393,10 @@ fun SettingsScreen(
       ) {
         Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = null)
         Spacer(modifier = Modifier.width(8.dp))
-        Text("সাইন আউট করুন", fontWeight = FontWeight.Bold)
+        Text(
+          text = if (isGuestMode) "লগইন স্ক্রিনে ফিরে যান" else "সাইন আউট করুন",
+          fontWeight = FontWeight.Bold,
+        )
       }
     }
 
@@ -411,8 +458,18 @@ fun SettingsScreen(
   if (showSignOutConfirm) {
     AlertDialog(
       onDismissRequest = { showSignOutConfirm = false },
-      title = { Text("সাইন আউট করবেন?") },
-      text = { Text("আপনার সব হিসাব Firebase ক্লাউডে নিরাপদে সংরক্ষিত আছে। পুনরায় লগইন করলেই সব তথ্য ফিরে পাবেন।") },
+      title = {
+        Text(if (isGuestMode) "লগইন স্ক্রিনে ফিরে যাবেন?" else "সাইন আউট করবেন?")
+      },
+      text = {
+        Text(
+          if (isGuestMode) {
+            "লগইন স্ক্রিনে ফিরে গেলেও আপনার অফলাইন হিসাব এই ফোনে সংরক্ষিত থাকবে। পরে আবার অফলাইন মোডে ঢুকলে বা Google অ্যাকাউন্ট যুক্ত করলে সব তথ্য পাবেন।"
+          } else {
+            "আপনার সব হিসাব Firebase ক্লাউডে নিরাপদে সংরক্ষিত আছে। পুনরায় লগইন করলেই সব তথ্য ফিরে পাবেন।"
+          }
+        )
+      },
       confirmButton = {
         Button(
           onClick = {
@@ -420,7 +477,9 @@ fun SettingsScreen(
             onSignOut()
           },
           colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-        ) { Text("সাইন আউট") }
+        ) {
+          Text(if (isGuestMode) "ফিরে যান" else "সাইন আউট")
+        }
       },
       dismissButton = {
         TextButton(onClick = { showSignOutConfirm = false }) { Text("বাতিল") }
