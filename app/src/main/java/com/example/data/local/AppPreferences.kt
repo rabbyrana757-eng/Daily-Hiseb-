@@ -114,10 +114,15 @@ class AppPreferences(private val context: Context) {
 
   suspend fun setAppLock(enabled: Boolean, rawPin: String? = null) {
     context.dataStore.edit { prefs ->
-      prefs[appLockEnabledKey] = enabled
-      if (rawPin != null) {
-        prefs[appLockPinKey] = hashSha256(rawPin)
-      } else if (!enabled) {
+      if (enabled) {
+        if (!rawPin.isNullOrBlank()) {
+          prefs[appLockPinKey] = hashSha256(rawPin)
+          prefs[appLockEnabledKey] = true
+        } else if (!prefs[appLockPinKey].isNullOrBlank()) {
+          prefs[appLockEnabledKey] = true
+        }
+      } else {
+        prefs[appLockEnabledKey] = false
         prefs.remove(appLockPinKey)
       }
     }

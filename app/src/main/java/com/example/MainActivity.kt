@@ -156,21 +156,29 @@ fun AppNavigation(
   val guestModeEnabled by preferences.guestModeEnabled.collectAsStateWithLifecycle(initialValue = null)
   val customUserEmail by preferences.customUserEmail.collectAsStateWithLifecycle(initialValue = null)
   val customUserName by preferences.customUserName.collectAsStateWithLifecycle(initialValue = null)
-  val appLockEnabled by preferences.appLockEnabled.collectAsStateWithLifecycle(initialValue = false)
+  val appLockEnabled by preferences.appLockEnabled.collectAsStateWithLifecycle(initialValue = null)
+  val appLockPinHash by preferences.appLockPinHash.collectAsStateWithLifecycle(initialValue = null)
 
-  var isAppUnlocked by remember { mutableStateOf(!appLockEnabled) }
+  // Track session unlock state (fresh app launch always starts locked if PIN is active)
+  var isAppUnlocked by remember { mutableStateOf(false) }
 
-  LaunchedEffect(appLockEnabled) {
-    if (!appLockEnabled) {
-      isAppUnlocked = true
-    }
+  // Wait for preferences to load from disk on cold start
+  if (appLockEnabled == null) {
+    Box(
+      modifier = Modifier
+        .fillMaxSize()
+        .background(MaterialTheme.colorScheme.background),
+    )
+    return
   }
 
-  // Auto-lock when application is sent to background
+  val isLockActive = (appLockEnabled == true) && !appLockPinHash.isNullOrBlank()
+
+  // Auto-lock when application is sent to background (ON_STOP)
   val lifecycleOwner = LocalLifecycleOwner.current
-  DisposableEffect(lifecycleOwner, appLockEnabled) {
+  DisposableEffect(lifecycleOwner, isLockActive) {
     val observer = LifecycleEventObserver { _, event ->
-      if (event == Lifecycle.Event.ON_STOP && appLockEnabled) {
+      if (event == Lifecycle.Event.ON_STOP && isLockActive) {
         isAppUnlocked = false
       }
     }
@@ -180,8 +188,8 @@ fun AppNavigation(
     }
   }
 
-  // Intercept with AppLockScreen if enabled and locked
-  if (appLockEnabled && !isAppUnlocked) {
+  // Intercept with Glassy App Lock V15 if enabled and not yet unlocked in this session
+  if (isLockActive && !isAppUnlocked) {
     AppLockScreen(
       onVerifyPin = { pin -> preferences.verifyPin(pin) },
       onUnlocked = { isAppUnlocked = true },
@@ -201,7 +209,7 @@ fun AppNavigation(
         preferences = preferences,
         themePreference = themePreference,
         isDarkTheme = isDarkTheme,
-        appLockEnabled = appLockEnabled,
+        appLockEnabled = isLockActive,
         onSetAppLock = { enabled, pin ->
           scope.launch {
             preferences.setAppLock(enabled, pin)
@@ -221,7 +229,7 @@ fun AppNavigation(
         preferences = preferences,
         themePreference = themePreference,
         isDarkTheme = isDarkTheme,
-        appLockEnabled = appLockEnabled,
+        appLockEnabled = isLockActive,
         onSetAppLock = { enabled, pin ->
           scope.launch {
             preferences.setAppLock(enabled, pin)
@@ -250,7 +258,7 @@ fun AppNavigation(
             preferences = preferences,
             themePreference = themePreference,
             isDarkTheme = isDarkTheme,
-            appLockEnabled = appLockEnabled,
+            appLockEnabled = isLockActive,
             onSetAppLock = { enabled, pin ->
               scope.launch {
                 preferences.setAppLock(enabled, pin)
