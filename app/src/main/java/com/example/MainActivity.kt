@@ -48,6 +48,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -56,6 +57,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -88,6 +92,7 @@ import com.example.ui.auth.signOutFromApp
 import com.example.ui.screens.AddEditPartyEntrySheet
 import com.example.ui.screens.AddEditPartySheet
 import com.example.ui.screens.AddEditTransactionSheet
+import com.example.ui.screens.AppLockScreen
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.PartyDetailScreen
 import com.example.ui.screens.ReportsHubScreen
@@ -149,6 +154,41 @@ fun AppNavigation(
   val scope = rememberCoroutineScope()
   val currentUser by auth.authStateFlow().collectAsStateWithLifecycle(initialValue = auth.currentUser)
   val guestModeEnabled by preferences.guestModeEnabled.collectAsStateWithLifecycle(initialValue = null)
+  val customUserEmail by preferences.customUserEmail.collectAsStateWithLifecycle(initialValue = null)
+  val customUserName by preferences.customUserName.collectAsStateWithLifecycle(initialValue = null)
+  val appLockEnabled by preferences.appLockEnabled.collectAsStateWithLifecycle(initialValue = false)
+
+  var isAppUnlocked by remember { mutableStateOf(!appLockEnabled) }
+
+  LaunchedEffect(appLockEnabled) {
+    if (!appLockEnabled) {
+      isAppUnlocked = true
+    }
+  }
+
+  // Auto-lock when application is sent to background
+  val lifecycleOwner = LocalLifecycleOwner.current
+  DisposableEffect(lifecycleOwner, appLockEnabled) {
+    val observer = LifecycleEventObserver { _, event ->
+      if (event == Lifecycle.Event.ON_STOP && appLockEnabled) {
+        isAppUnlocked = false
+      }
+    }
+    lifecycleOwner.lifecycle.addObserver(observer)
+    onDispose {
+      lifecycleOwner.lifecycle.removeObserver(observer)
+    }
+  }
+
+  // Intercept with AppLockScreen if enabled and locked
+  if (appLockEnabled && !isAppUnlocked) {
+    AppLockScreen(
+      onVerifyPin = { pin -> preferences.verifyPin(pin) },
+      onUnlocked = { isAppUnlocked = true },
+    )
+    return
+  }
+
   val user = currentUser
 
   if (user != null) {
@@ -161,6 +201,34 @@ fun AppNavigation(
         preferences = preferences,
         themePreference = themePreference,
         isDarkTheme = isDarkTheme,
+        appLockEnabled = appLockEnabled,
+        onSetAppLock = { enabled, pin ->
+          scope.launch {
+            preferences.setAppLock(enabled, pin)
+            if (enabled) isAppUnlocked = true
+          }
+        },
+        onVerifyPin = { pin -> preferences.verifyPin(pin) },
+      )
+    }
+  } else if (!customUserEmail.isNullOrBlank()) {
+    key("custom_user_$customUserEmail") {
+      MainAppShell(
+        currentUserId = "local_user",
+        userDisplayName = customUserName ?: customUserEmail,
+        userEmail = customUserEmail,
+        isGuestMode = true,
+        preferences = preferences,
+        themePreference = themePreference,
+        isDarkTheme = isDarkTheme,
+        appLockEnabled = appLockEnabled,
+        onSetAppLock = { enabled, pin ->
+          scope.launch {
+            preferences.setAppLock(enabled, pin)
+            if (enabled) isAppUnlocked = true
+          }
+        },
+        onVerifyPin = { pin -> preferences.verifyPin(pin) },
       )
     }
   } else {
@@ -182,6 +250,14 @@ fun AppNavigation(
             preferences = preferences,
             themePreference = themePreference,
             isDarkTheme = isDarkTheme,
+            appLockEnabled = appLockEnabled,
+            onSetAppLock = { enabled, pin ->
+              scope.launch {
+                preferences.setAppLock(enabled, pin)
+                if (enabled) isAppUnlocked = true
+              }
+            },
+            onVerifyPin = { pin -> preferences.verifyPin(pin) },
           )
         }
       }
@@ -191,7 +267,14 @@ fun AppNavigation(
             scope.launch { preferences.setGuestModeEnabled(false) }
           },
           onContinueAsGuest = {
-            scope.launch { preferences.setGuestModeEnabled(true) }
+            scope.launch {
+              preferences.clearCustomUserAccount()
+              preferences.setGuestModeEnabled(true)
+            }
+          },
+          preferences = preferences,
+          onCustomLoginSuccess = { _, _ ->
+            // Custom user is registered/logged in via preferences flow
           },
         )
       }
@@ -208,6 +291,9 @@ private fun MainAppShell(
   preferences: AppPreferences,
   themePreference: ThemePreference,
   isDarkTheme: Boolean,
+  appLockEnabled: Boolean = false,
+  onSetAppLock: (Boolean, String?) -> Unit = { _, _ -> },
+  onVerifyPin: suspend (String) -> Boolean = { true },
 ) {
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
@@ -741,14 +827,20 @@ private fun MainAppShell(
                   restoreLauncher.launch(arrayOf("application/json", "*/*"))
                 },
                 onSignOut = {
-                  if (isGuestMode) {
-                    scope.launch { preferences.setGuestModeEnabled(false) }
-                  } else {
-                    signOutFromApp(credentialManager = credentialManager, scope = scope)
+                  scope.launch {
+                    preferences.clearCustomUserAccount()
+                    if (isGuestMode) {
+                      preferences.setGuestModeEnabled(false)
+                    } else {
+                      signOutFromApp(credentialManager = credentialManager, scope = scope)
+                    }
                   }
                 },
                 isGuestMode = isGuestMode,
                 isLinkingGoogle = isLinkingGoogle,
+                appLockEnabled = appLockEnabled,
+                onSetAppLock = onSetAppLock,
+                onVerifyPin = onVerifyPin,
                 onLinkGoogleAccount = {
                   isLinkingGoogle = true
                   scope.launch {
@@ -758,7 +850,10 @@ private fun MainAppShell(
                       credentialManager = credentialManager,
                       onAuthSuccess = {
                         isLinkingGoogle = false
-                        scope.launch { preferences.setGuestModeEnabled(false) }
+                        scope.launch {
+                          preferences.clearCustomUserAccount()
+                          preferences.setGuestModeEnabled(false)
+                        }
                       },
                       onAuthError = { msg ->
                         isLinkingGoogle = false

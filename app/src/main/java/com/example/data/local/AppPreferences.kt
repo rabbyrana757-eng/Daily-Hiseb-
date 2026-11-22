@@ -31,6 +31,15 @@ class AppPreferences(private val context: Context) {
   private val guestModeKey = booleanPreferencesKey("guest_mode_enabled")
   private val migrateGuestKey = booleanPreferencesKey("migrate_guest_on_sign_in")
 
+  // App Lock preferences
+  private val appLockEnabledKey = booleanPreferencesKey("app_lock_enabled")
+  private val appLockPinKey = stringPreferencesKey("app_lock_pin_hash")
+
+  // Custom Gmail & Password user credentials
+  private val customEmailKey = stringPreferencesKey("custom_user_email")
+  private val customNameKey = stringPreferencesKey("custom_user_name")
+  private val customPasswordHashKey = stringPreferencesKey("custom_user_password_hash")
+
   val themePreference: Flow<ThemePreference> =
     context.dataStore.data.map { prefs ->
       ThemePreference.fromValue(prefs[themeKey])
@@ -44,6 +53,26 @@ class AppPreferences(private val context: Context) {
   val guestModeEnabled: Flow<Boolean> =
     context.dataStore.data.map { prefs ->
       prefs[guestModeKey] ?: false
+    }
+
+  val appLockEnabled: Flow<Boolean> =
+    context.dataStore.data.map { prefs ->
+      prefs[appLockEnabledKey] ?: false
+    }
+
+  val appLockPinHash: Flow<String?> =
+    context.dataStore.data.map { prefs ->
+      prefs[appLockPinKey]
+    }
+
+  val customUserEmail: Flow<String?> =
+    context.dataStore.data.map { prefs ->
+      prefs[customEmailKey]
+    }
+
+  val customUserName: Flow<String?> =
+    context.dataStore.data.map { prefs ->
+      prefs[customNameKey]
     }
 
   suspend fun setThemePreference(pref: ThemePreference) {
@@ -79,5 +108,58 @@ class AppPreferences(private val context: Context) {
       }
     }
     return shouldMigrate
+  }
+
+  // --- App Lock (4-digit PIN) ---
+
+  suspend fun setAppLock(enabled: Boolean, rawPin: String? = null) {
+    context.dataStore.edit { prefs ->
+      prefs[appLockEnabledKey] = enabled
+      if (rawPin != null) {
+        prefs[appLockPinKey] = hashSha256(rawPin)
+      } else if (!enabled) {
+        prefs.remove(appLockPinKey)
+      }
+    }
+  }
+
+  suspend fun verifyPin(enteredPin: String): Boolean {
+    val currentHash = context.dataStore.data.map { it[appLockPinKey] }.first() ?: return false
+    return hashSha256(enteredPin) == currentHash
+  }
+
+  // --- Custom Gmail & Password Account ---
+
+  suspend fun saveCustomUserAccount(email: String, name: String, password: String) {
+    context.dataStore.edit { prefs ->
+      prefs[customEmailKey] = email.trim().lowercase()
+      prefs[customNameKey] = name.trim()
+      prefs[customPasswordHashKey] = hashSha256(password)
+      prefs[guestModeKey] = true
+    }
+  }
+
+  suspend fun verifyCustomUser(email: String, password: String): Boolean {
+    val prefs = context.dataStore.data.first()
+    val savedEmail = prefs[customEmailKey]
+    val savedHash = prefs[customPasswordHashKey]
+    if (savedEmail.isNullOrBlank() || savedHash.isNullOrBlank()) return false
+    return savedEmail.equals(email.trim(), ignoreCase = true) && hashSha256(password) == savedHash
+  }
+
+  suspend fun clearCustomUserAccount() {
+    context.dataStore.edit { prefs ->
+      prefs.remove(customEmailKey)
+      prefs.remove(customNameKey)
+      prefs.remove(customPasswordHashKey)
+    }
+  }
+
+  companion object {
+    fun hashSha256(input: String): String {
+      val md = java.security.MessageDigest.getInstance("SHA-256")
+      val digest = md.digest(input.toByteArray(Charsets.UTF_8))
+      return digest.joinToString("") { "%02x".format(it) }
+    }
   }
 }
